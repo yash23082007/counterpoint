@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;1,500;1,600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap");
 
 :root {
   font-family: "DM Sans", sans-serif;
@@ -15,7 +15,7 @@
   --accent: #c97954;
   --mist: #e9f2ed;
   --deep: #183e3c;
-  --serif: "Playfair Display", Georgia, serif;
+  --serif: "Newsreader", Georgia, serif;
   --mono: "DM Mono", monospace;
 }
 * {
@@ -75,6 +75,14 @@ button {
   display: grid;
   place-items: center;
   font-size: 17px;
+}
+.brand-mark svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
 }
 .beta {
   font: 9px var(--mono);
@@ -1710,4 +1718,166 @@ dialog {
   .page-footer {
     gap: 8px;
   }
+}
+
+/* Counterpoint's editorial direction: a quiet, considered decision desk. */
+:root[data-theme="dark"] {
+  --ink: #e8e5da;
+  --muted: #a29f91;
+  --line: #373b32;
+  --paper: #191b17;
+  --green: #b6c49a;
+  --accent: #d39a68;
+  --mist: #282b23;
+  --deep: #e8e2d2;
+  background: #11120f;
+}
+:root[data-theme="dark"] body { background: #11120f; }
+:root[data-theme="dark"] .app-shell,
+:root[data-theme="dark"] .main-content,
+:root[data-theme="dark"] .topbar { background: #141510; }
+:root[data-theme="dark"] .sidebar { background: #171812; }
+:root[data-theme="dark"] .auth-view { background: #11120f; }
+:root[data-theme="dark"] .auth-panel,
+:root[data-theme="dark"] .decision-card,
+:root[data-theme="dark"] .argument-card,
+:root[data-theme="dark"] .sources-card,
+:root[data-theme="dark"] .history-view,
+:root[data-theme="dark"] .verdict-card,
+:root[data-theme="dark"] .loading-card,
+:root[data-theme="dark"] .dialog-card {
+  background: #191b17;
+  border-color: #373b32;
+  border-radius: 3px;
+  box-shadow: none;
+}
+:root[data-theme="dark"] .auth-panel { border-top: 2px solid var(--accent); }
+:root[data-theme="dark"] .decision-card { border-top: 2px solid var(--accent); }
+:root[data-theme="dark"] .intro {
+  border-left: 0;
+  padding-left: 0;
+  margin-top: 67px;
+}
+:root[data-theme="dark"] .intro .eyebrow { color: #c3a17e; }
+:root[data-theme="dark"] .intro h1 {
+  font-size: clamp(48px, 6vw, 68px);
+  letter-spacing: -2.6px;
+  line-height: 0.98;
+}
+:root[data-theme="dark"] .intro h1 em { color: #c5b58e; }
+:root[data-theme="dark"] .intro p { color: #a5a294; }
+:root[data-theme="dark"] .pulse { background: var(--accent); box-shadow: none; }
+:root[data-theme="dark"] .decision-setup,
+:root[data-theme="dark"] .auth-tabs {
+  background: #20211b;
+  border-color: #373b32;
+  border-radius: 2px;
+}
+:root[data-theme="dark"] .setup-index {
+  border-radius: 2px;
+  background: #383329;
+  color: #e0b184;
+}
+:root[data-theme="dark"] .setup-heading strong { color: #dedacc; }
+:root[data-theme="dark"] .decision-prompts button {
+  border-radius: 2px;
+  background: transparent;
+  border-color: #414238;
+  color: #b3b0a2;
+}
+:root[data-theme="dark"] .decision-prompts button:hover,
+:root[data-theme="dark"] .decision-prompts button.selected {
+  background: #302b22;
+  border-color: #9f7953;
+  color: #e6c39e;
+}
+:root[data-theme="dark"] .selected-chip {
+  border-radius: 2px;
+  background: #20211b;
+  border-color: #3a3d33;
+  color: #ccc9bd;
+}
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select {
+  background: #13140f;
+  border-color: #414238;
+  border-radius: 2px;
+}
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] textarea:focus {
+  border-color: #bd9468;
+  box-shadow: 0 0 0 2px #bd946822;
+}
+:root[data-theme="dark"] .start-button,
+:root[data-theme="dark"] .save-button {
+  border-radius: 2px;
+  background: #c79668;
+  color: #17160f;
+  letter-spacing: 0.15px;
+}
+:root[data-theme="dark"] .start-button:hover,
+:root[data-theme="dark"] .save-button:hover { background: #d6aa7f; }
+:root[data-theme="dark"] .for-pill {
+  background: #30372a;
+  color: #c6d2a8;
+  border-radius: 2px;
+}
+:root[data-theme="dark"] .against-pill {
+  background: #3c2d25;
+  color: #e2b18c;
+  border-radius: 2px;
+}
+:root[data-theme="dark"] .judge-pill {
+  background: #30312a;
+  color: #d1c9a8;
+  border-radius: 2px;
+}
+:root[data-theme="dark"] .nav-item.active,
+:root[data-theme="dark"] .nav-item:hover {
+  background: #282920;
+  color: #d7c7a1;
+  border-radius: 2px;
+}
+:root[data-theme="dark"] .nav-item.active > span:first-child { color: #d39a68; }
+:root[data-theme="dark"] .brand-mark {
+  border: 1px solid #5e503d;
+  border-radius: 2px;
+  background: transparent;
+  color: #d39a68;
+}
+:root[data-theme="dark"] .theme-toggle {
+  border-color: #4b493c;
+  border-radius: 2px;
+  background: transparent;
+  color: #d4c29f;
+}
+:root[data-theme="dark"] .theme-toggle:hover { background: #24251d; }
+:root[data-theme="dark"] .auth-tabs button.active {
+  border-radius: 2px;
+  background: #33342a;
+  border-color: #49483a;
+}
+:root[data-theme="dark"] .argument-head,
+:root[data-theme="dark"] .verdict-head,
+:root[data-theme="dark"] .card-divider,
+:root[data-theme="dark"] .sources-heading { border-color: #373b32; }
+:root[data-theme="dark"] .source-item strong { color: #dedacc; }
+:root[data-theme="dark"] .source-item:hover { background: #23241e; }
+:root[data-theme="dark"] .table-scroll,
+:root[data-theme="dark"] table,
+:root[data-theme="dark"] table td { border-color: #373b32; }
+:root[data-theme="dark"] table th { background: #25261f; color: #dedacc; }
+:root[data-theme="dark"] .theme-toggle:focus-visible,
+:root[data-theme="dark"] button:focus-visible,
+:root[data-theme="dark"] a:focus-visible,
+:root[data-theme="dark"] input:focus-visible,
+:root[data-theme="dark"] textarea:focus-visible {
+  outline: 2px solid #d39a68;
+  outline-offset: 3px;
+}
+@media (max-width: 650px) {
+  :root[data-theme="dark"] .intro { margin-top: 38px; }
+  :root[data-theme="dark"] .intro h1 { font-size: clamp(43px, 13vw, 58px); }
+  :root[data-theme="dark"] .top-actions { gap: 9px; }
 }

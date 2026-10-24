@@ -61,6 +61,39 @@ Open the local URL printed by Vite. Its development server forwards `/api` reque
 
 On an HTTPS deployment, set `COOKIE_SECURE=true` and configure a persistent private volume for `DATABASE_PATH`. The default cookie setting is for local HTTP development. Back up the SQLite database securely; it contains account emails and saved decision content.
 
+## Deploy to Render and Vercel
+
+The repository includes a Render Blueprint (`render.yaml`), a Vercel build config (`vercel.json`), and a Vercel API proxy (`api/[...path].js`). The proxy keeps browser requests and secure session cookies on the Vercel origin while forwarding API calls to Render. This avoids cross-origin cookie and CORS configuration.
+
+### 1. Deploy the API to Render
+
+1. Push this repository to GitHub and create a new **Blueprint** in Render from that repository.
+2. Generate a private proxy token (for example, run `python -c "import secrets; print(secrets.token_urlsafe(48))"`) and keep it available while configuring both services.
+3. Render reads `render.yaml` and creates the `counterpoint-api` service. The Blueprint requests these secret values during setup: `GROQ_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `GOOGLE_CLIENT_ID`, and `BACKEND_PROXY_TOKEN`. Enter the generated proxy token for `BACKEND_PROXY_TOKEN`.
+4. The service mounts a persistent disk at `/var/data` for the SQLite database. The Blueprint uses Render's Starter instance because SQLite data must persist across deploys and restarts; Render persistent disks require a paid service plan.
+5. Wait until the service is live and its `/api/health` check passes. Copy its base URL, for example `https://counterpoint-api.onrender.com`.
+
+### 2. Deploy the web app to Vercel
+
+1. Import the same GitHub repository into Vercel. Keep the project root set to the repository root.
+2. Vercel uses `npm run build` and the `dist` output from `vercel.json`. The `api` directory is deployed as a Vercel Node function.
+3. In the Vercel project's **Settings → Environment Variables**, add `BACKEND_URL` with the Render service base URL (no trailing slash), for example `https://counterpoint-api.onrender.com`, and `BACKEND_PROXY_TOKEN` with the exact same private token entered in Render.
+4. Redeploy after setting the variables. Open the Vercel site and check that its `/api/health` endpoint returns `{"status":"ok", ...}`. Other API routes require the private proxy token, so the public Render URL cannot be used to bypass the Vercel app.
+
+### 3. Enable Google sign-in on the deployed site
+
+In Google Auth Platform, edit the same Web OAuth client and add the Vercel production domain as an **Authorized JavaScript origin**, such as `https://your-project.vercel.app` (no path or trailing slash). Add any custom production domain too. Add your Google account under **Audience → Test users** while the app is in testing. Google sign-in on preview deployment domains requires each preview origin to be authorized separately; use the production URL for testing if previews are not registered.
+
+Google Identity Services verifies ID tokens through `GOOGLE_CLIENT_ID`; this app does not need the OAuth client secret. If a client secret was exposed, rotate it in Google Cloud and do not add it to Vercel or Render.
+
+### Production notes
+
+- Keep provider keys and `GOOGLE_CLIENT_ID` in Render's environment settings. Never use a `VITE_` prefix for secrets.
+- The Vercel proxy passes API cookies through to the browser, so authentication and saved decisions remain scoped to the Vercel site.
+- The API proxy function allows up to 300 seconds for model requests. Vercel Fluid Compute must be enabled (it is enabled by default) to use the Hobby plan's 300-second function limit.
+- Back up the Render disk's SQLite database before deleting or recreating the disk. Deleting the disk deletes account and decision data.
+- The Render health endpoint reports API status and whether model provider keys are present; it does not call the providers or consume API credits.
+
 ## Optional model settings
 
 Set `GROQ_MODEL` or `GEMINI_MODEL` in `backend/.env` to override the defaults (`openai/gpt-oss-120b` and `gemini-2.5-flash`). The chosen model must be available to your provider account.

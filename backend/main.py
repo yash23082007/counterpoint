@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -28,6 +29,20 @@ SESSION_COOKIE = "counterpoint_session"
 SESSION_TTL = 60 * 60 * 24 * 7
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+@app.middleware("http")
+async def require_vercel_proxy(request: Request, call_next):
+    proxy_token = os.getenv("BACKEND_PROXY_TOKEN", "").strip()
+    if proxy_token and request.url.path.startswith("/api/") and request.url.path != "/api/health":
+        supplied_token = request.headers.get("x-counterpoint-proxy-token", "")
+        if not hmac.compare_digest(proxy_token, supplied_token):
+            return Response(
+                content='{"detail":"Use the deployed web app to access this API."}',
+                status_code=403,
+                media_type="application/json",
+            )
+    return await call_next(request)
 
 
 def connect_db():
@@ -126,6 +141,11 @@ def consume_auth_attempt(bucket: str, maximum: int = 8, window: int = 900) -> bo
 
 
 def request_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    try:
+        return str(ipaddress.ip_address(forwarded_for))
+    except ValueError:
+        pass
     return request.client.host if request.client else "unknown"
 
 

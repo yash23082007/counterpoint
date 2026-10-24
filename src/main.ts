@@ -50,7 +50,7 @@ app.innerHTML = `
   <section class="auth-view" id="auth-view">
     <div class="auth-panel">
       <button type="button" class="theme-toggle auth-theme-toggle" aria-label="Switch to light theme" title="Switch to light theme">☼ Light</button>
-      <div class="brand auth-brand"><span class="brand-mark">↗</span><span>Counterpoint</span></div>
+      <div class="brand auth-brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4.5 7.5h13m0 0-3-3m3 3-3 3M19.5 16.5h-13m0 0 3-3m-3 3 3 3"/></svg></span><span>Counterpoint</span></div>
       <div class="eyebrow"><span class="pulse"></span> YOUR DECISION WORKSPACE</div>
       <h1 id="auth-title">Welcome back.</h1>
       <p class="auth-intro" id="auth-intro">Sign in to continue to your saved decisions.</p>
@@ -77,7 +77,7 @@ app.innerHTML = `
   </section>
   <div class="app-shell hidden">
     <aside class="sidebar">
-      <a class="brand" href="#" aria-label="Counterpoint home"><span class="brand-mark">↗</span><span>Counterpoint</span></a>
+      <a class="brand" href="#" aria-label="Counterpoint home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4.5 7.5h13m0 0-3-3m3 3-3 3M19.5 16.5h-13m0 0 3-3m-3 3 3 3"/></svg></span><span>Counterpoint</span></a>
       <div class="side-label">Workspace</div>
       <button class="nav-item active" id="new-decision"><span>✳</span> New decision <kbd>⌘ N</kbd></button>
       <button class="nav-item" id="show-history"><span>◷</span> Decision history <span class="history-count"></span></button>
