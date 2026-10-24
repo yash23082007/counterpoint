@@ -1,10 +1,44 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "functions": {
-    "api/*.js": {
-      "maxDuration": 300
+  "services": {
+    "app": {
+      "root": ".",
+      "framework": "vite",
+      "buildCommand": "npm run build",
+      "outputDirectory": "dist",
+      "functions": {
+        "api/*.js": {
+          "maxDuration": 300
+        }
+      },
+      "bindings": [
+        {
+          "type": "service",
+          "service": "counterpoint-api",
+          "format": "url",
+          "env": "COUNTERPOINT_API_URL"
+        }
+      ]
+    },
+    "counterpoint-api": {
+      "root": "backend",
+      "framework": "fastapi",
+      "entrypoint": "main:app",
+      "buildCommand": "pip install -r requirements.txt"
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "app"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "app"
+      }
+    }
+  ]
 }

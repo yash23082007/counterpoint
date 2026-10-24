@@ -17,22 +17,26 @@ const hopByHopHeaders = new Set([
 ]);
 
 export default async function handler(request, response) {
-  const backendUrl = process.env.BACKEND_URL?.replace(/\/+$/, "");
-  const proxyToken = process.env.BACKEND_PROXY_TOKEN;
-  if (!backendUrl || !proxyToken) {
-    response.status(503).json({ detail: "The API proxy is not configured." });
+  const backendUrl = process.env.COUNTERPOINT_API_URL?.replace(/\/+$/, "");
+  if (!backendUrl) {
+    response.status(503).json({ detail: "The counterpoint-api service binding is unavailable." });
     return;
   }
 
   try {
-    const destination = new URL(request.url || "/api", backendUrl);
+    const incomingUrl = new URL(request.url || "/api", "http://vercel.local");
+    const destination = new URL(
+      `${incomingUrl.pathname}${incomingUrl.search}`,
+      backendUrl,
+    );
     const headers = new Headers();
     for (const [name, value] of Object.entries(request.headers)) {
       if (!hopByHopHeaders.has(name.toLowerCase()) && value !== undefined) {
         headers.set(name, Array.isArray(value) ? value.join(", ") : value);
       }
     }
-    headers.set("x-counterpoint-proxy-token", proxyToken);
+    const proxyToken = process.env.BACKEND_PROXY_TOKEN;
+    if (proxyToken) headers.set("x-counterpoint-proxy-token", proxyToken);
 
     const method = request.method || "GET";
     let body;
@@ -70,7 +74,7 @@ export default async function handler(request, response) {
     response.end(Buffer.from(await upstream.arrayBuffer()));
   } catch {
     response.status(502).json({
-      detail: "The API service could not be reached. Check the Render service status.",
+      detail: "The API service could not be reached. Check the Vercel service deployment.",
     });
   }
 }

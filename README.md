@@ -61,38 +61,33 @@ Open the local URL printed by Vite. Its development server forwards `/api` reque
 
 On an HTTPS deployment, set `COOKIE_SECURE=true` and configure a persistent private volume for `DATABASE_PATH`. The default cookie setting is for local HTTP development. Back up the SQLite database securely; it contains account emails and saved decision content.
 
-## Deploy to Render and Vercel
+## Deploy to Vercel with multiple services
 
-The repository includes a Render Blueprint (`render.yaml`), a Vercel build config (`vercel.json`), and a Vercel API proxy (`api/[...path].js`). The proxy keeps browser requests and secure session cookies on the Vercel origin while forwarding API calls to Render. This avoids cross-origin cookie and CORS configuration.
+The root `vercel.json` defines two Vercel services:
 
-### 1. Deploy the API to Render
+- `app` builds the Vite frontend and the Node API bridge. It receives public `/` and `/api/*` requests.
+- `counterpoint-api` runs FastAPI. It stays internal; only the `app` service can call it through the `COUNTERPOINT_API_URL` service binding.
 
-1. Push this repository to GitHub and create a new **Blueprint** in Render from that repository.
-2. Generate a private proxy token (for example, run `python -c "import secrets; print(secrets.token_urlsafe(48))"`) and keep it available while configuring both services.
-3. Render reads `render.yaml` and creates the `counterpoint-api` service. The Blueprint requests these secret values during setup: `GROQ_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `GOOGLE_CLIENT_ID`, and `BACKEND_PROXY_TOKEN`. Enter the generated proxy token for `BACKEND_PROXY_TOKEN`.
-4. The service mounts a persistent disk at `/var/data` for the SQLite database. The Blueprint uses Render's Starter instance because SQLite data must persist across deploys and restarts; Render persistent disks require a paid service plan.
-5. Wait until the service is live and its `/api/health` check passes. Copy its base URL, for example `https://counterpoint-api.onrender.com`.
+Vercel services are in beta. Import this repository into a Vercel project with the project root at the repository root and the framework set to **Services** (or let Vercel detect the `services` configuration). The API bridge forwards browser `/api/*` requests to FastAPI at the same path, so the existing frontend URLs and FastAPI `/api/...` routes remain aligned. The binding is resolved at runtime inside the Node function, not during the Vite build.
 
-### 2. Deploy the web app to Vercel
+Set these project environment variables in Vercel for the environments you deploy:
 
-1. Import the same GitHub repository into Vercel. Keep the project root set to the repository root.
-2. Vercel uses `npm run build` and the `dist` output from `vercel.json`. The `api` directory is deployed as a Vercel Node function.
-3. In the Vercel project's **Settings → Environment Variables**, add `BACKEND_URL` with the Render service base URL (no trailing slash), for example `https://counterpoint-api.onrender.com`, and `BACKEND_PROXY_TOKEN` with the exact same private token entered in Render.
-4. Redeploy after setting the variables. Open the Vercel site and check that its `/api/health` endpoint returns `{"status":"ok", ...}`. Other API routes require the private proxy token, so the public Render URL cannot be used to bypass the Vercel app.
+```text
+GROQ_API_KEY
+GEMINI_API_KEY
+TAVILY_API_KEY
+GOOGLE_CLIENT_ID
+```
 
-### 3. Enable Google sign-in on the deployed site
+Do not create a `COUNTERPOINT_API_URL` variable yourself; Vercel injects it from the binding. The API bridge runs for up to 300 seconds to cover model-provider requests. For local multi-service development, install or run the Vercel CLI and use `vercel dev` from the repository root; the ordinary Vite dev command still proxies to local FastAPI on port 8000.
 
-In Google Auth Platform, edit the same Web OAuth client and add the Vercel production domain as an **Authorized JavaScript origin**, such as `https://your-project.vercel.app` (no path or trailing slash). Add any custom production domain too. Add your Google account under **Audience → Test users** while the app is in testing. Google sign-in on preview deployment domains requires each preview origin to be authorized separately; use the production URL for testing if previews are not registered.
+### Database requirement before production
 
-Google Identity Services verifies ID tokens through `GOOGLE_CLIENT_ID`; this app does not need the OAuth client secret. If a client secret was exposed, rotate it in Google Cloud and do not add it to Vercel or Render.
+The current backend stores accounts, sessions, and decisions in a local SQLite file. Vercel Functions have a read-only filesystem apart from temporary `/tmp` storage, and function instances do not share a permanent SQLite file. A Vercel deployment therefore needs a shared persistent database (for example, PostgreSQL) before real users create accounts or save decisions. Do not point `DATABASE_PATH` at `/tmp` for production data. The current `render.yaml` remains available for the separate Render deployment, which uses a persistent disk for SQLite.
 
-### Production notes
+### Google sign-in
 
-- Keep provider keys and `GOOGLE_CLIENT_ID` in Render's environment settings. Never use a `VITE_` prefix for secrets.
-- The Vercel proxy passes API cookies through to the browser, so authentication and saved decisions remain scoped to the Vercel site.
-- The API proxy function allows up to 300 seconds for model requests. Vercel Fluid Compute must be enabled (it is enabled by default) to use the Hobby plan's 300-second function limit.
-- Back up the Render disk's SQLite database before deleting or recreating the disk. Deleting the disk deletes account and decision data.
-- The Render health endpoint reports API status and whether model provider keys are present; it does not call the providers or consume API credits.
+In Google Auth Platform, add the Vercel production domain as an **Authorized JavaScript origin**, such as `https://your-project.vercel.app` (no path or trailing slash), and add your Google account under **Audience → Test users** while the consent screen is in testing. Add a custom production domain separately. Google Identity Services verifies ID tokens through `GOOGLE_CLIENT_ID`; the app does not need the OAuth client secret.
 
 ## Optional model settings
 
