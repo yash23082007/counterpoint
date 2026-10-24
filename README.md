@@ -65,10 +65,10 @@ On an HTTPS deployment, set `COOKIE_SECURE=true` and configure a persistent priv
 
 The root `vercel.json` defines two Vercel services:
 
-- `app` builds the Vite frontend and the Node API bridge. It receives public `/` and `/api/*` requests.
-- `counterpoint-api` runs FastAPI. It stays internal; only the `app` service can call it through the `COUNTERPOINT_API_URL` service binding.
+- `app` builds and serves the Vite frontend at `/`.
+- `counterpoint-api` runs FastAPI and receives public `/api/*` requests. Its routes already use the `/api/...` prefix, which the Vercel rewrite preserves.
 
-Vercel services are in beta. Import this repository into a Vercel project with the project root at the repository root and the framework set to **Services** (or let Vercel detect the `services` configuration). The API bridge forwards browser `/api/*` requests to FastAPI at the same path, so the existing frontend URLs and FastAPI `/api/...` routes remain aligned. The binding is resolved at runtime inside the Node function, not during the Vite build.
+Vercel services are in beta. Import this repository into a Vercel project with the project root at the repository root and the framework set to **Services** (or let Vercel detect the `services` configuration). Browser API requests use same-origin `/api/...` URLs and Vercel routes them directly to FastAPI. No service binding is needed because neither service makes a server-side request to the other.
 
 Set these project environment variables in Vercel for the environments you deploy:
 
@@ -79,7 +79,7 @@ TAVILY_API_KEY
 GOOGLE_CLIENT_ID
 ```
 
-Do not create a `COUNTERPOINT_API_URL` variable yourself; Vercel injects it from the binding. The API bridge runs for up to 300 seconds to cover model-provider requests. For local multi-service development, install or run the Vercel CLI and use `vercel dev` from the repository root; the ordinary Vite dev command still proxies to local FastAPI on port 8000.
+For local development, the ordinary Vite dev command proxies `/api` to FastAPI on port 8000. The Vercel multi-service setup uses same-origin rewrites for production.
 
 ### Database requirement before production
 
