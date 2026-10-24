@@ -18,7 +18,7 @@ Model responses can be mistaken and search snippets can lack context; open and v
 - Python 3.10+
 - API keys for [Groq](https://console.groq.com/keys), [Google AI Studio](https://aistudio.google.com/app/apikey), and [Tavily](https://app.tavily.com/home)
 
-Accounts are local to this deployment. There is no email verification or password reset flow yet, so use an email address you can identify and a unique password.
+Password-created accounts are local to this deployment. There is no password reset flow yet, so use an email address you can identify and a unique password. Google sign-in creates or returns an account using the verified Google identity.
 
 ## Run locally
 
@@ -30,7 +30,10 @@ Create `backend/.env` using `backend/.env.example` as a guide:
 GROQ_API_KEY=your_groq_api_key
 GEMINI_API_KEY=your_google_ai_studio_api_key
 TAVILY_API_KEY=your_tavily_api_key
+GOOGLE_CLIENT_ID=your_google_oauth_web_client_id.apps.googleusercontent.com
 ```
+
+To enable **Continue with Google**, create a Web application OAuth client in Google Cloud Console and add `http://127.0.0.1:5173` as an authorized JavaScript origin. Put its client ID in `GOOGLE_CLIENT_ID`, then restart the backend. Google ID tokens are verified server-side before a session is created.
 
 The local `.env` is ignored by Git. Keys stay in the Python backend and are never sent to the browser.
 Passwords are salted and hashed with scrypt. Sessions use random server-side tokens stored as hashes and an HTTP-only, SameSite=Strict cookie. SQLite stores accounts and decisions in `backend/counterpoint.db`, which is also ignored by Git.
