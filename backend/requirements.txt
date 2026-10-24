@@ -1,6 +1,5 @@
 fastapi
-uvicorn
-pyautogen
-tavily-python
-google-genai
+uvicorn[standard]
+httpx
+python-dotenv
 pydantic

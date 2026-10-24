@@ -1,81 +1,70 @@
-# Dialectica ⚖️
-**The Debate-to-Decision Engine**
+# Counterpoint — The Debate-to-Decision Engine
 
-Dialectica is an advanced multi-agent AI application designed to help you make difficult, real-world decisions. When you're stuck on a tough choice (e.g., "Should I take a 20% pay cut for a remote job?"), Dialectica puts your decision on trial. 
+Counterpoint helps you examine a difficult choice from multiple angles. Tavily finds relevant web sources, two Groq-powered advocates make the strongest fair case for and against a decision, and Gemini weighs both cases against your criteria.
 
-Instead of relying on a single AI prompt that might hallucinate or give a generic answer, Dialectica utilizes a structured adversarial debate. Two independent AI agents argue opposite sides of the decision, gathering real-world evidence. A third agent acts as an impartial judge to weigh the arguments against your personal criteria and provide a structured decision matrix.
+## How it works
 
-## 🌟 Why Dialectica Stands Out
-- **Adversarial Structure**: By forcing two agents to argue opposite sides, you get a comprehensive view of the pros and cons, free from the "yes-man" bias of standard LLMs.
-- **Evidence-Led, Not Vibes**: Advocates are grounded using Tavily Search. They must cite real evidence and data to back up their claims, ensuring your decision is based on facts.
-- **Personalized Criteria**: The Judge doesn't just give a verdict; it weighs the arguments specifically against the criteria *you* care about (e.g., financial upside, lifestyle fit, risk tolerance).
-- **Clear AI Orchestration**: Built on AutoGen/AG2, demonstrating true multi-agent collaboration and reasoning.
+1. Describe a decision and select the criteria that matter to you.
+2. Tavily searches the web and provides source links to both Groq advocates.
+3. Groq generates the pro and con arguments in parallel, citing supplied sources where relevant.
+4. Gemini compares those arguments with your criteria and writes a recommendation, uncertainties, and next step.
+5. Sign in to revisit decisions saved to your account in SQLite.
 
-## 🏗️ Architecture Stack
-- **Agent Orchestration**: [AutoGen / AG2](https://microsoft.github.io/autogen/)
-- **Search & Grounding**: [Tavily Search API](https://tavily.com/)
-- **LLM Engine**: Google Gemini (via `google-genai` and `pyautogen`)
-- **Backend API**: Python + [FastAPI](https://fastapi.tiangolo.com/)
-- **Frontend UI**: [Vite](https://vitejs.dev/) + Vanilla TypeScript
+Model responses can be mistaken and search snippets can lack context; open and verify important sources independently.
 
-## 🚀 How It Works
-1. **Input Your Decision**: Enter the decision you are struggling with and list your criteria for success.
-2. **Advocate-For (Pro)**: This agent searches the web for evidence and constructs the strongest possible argument *in favor* of the decision.
-3. **Advocate-Against (Con)**: This agent simultaneously researches and constructs the strongest possible argument *against* the decision.
-4. **The Judge**: A third impartial agent reviews the transcripts from both advocates. It evaluates the evidence against your stated criteria and outputs a structured Decision Matrix, concluding with a final recommendation.
+## Requirements
 
-## 🛠️ Installation & Setup
+- Node.js 20.19+ (Vite 8)
+- Python 3.10+
+- API keys for [Groq](https://console.groq.com/keys), [Google AI Studio](https://aistudio.google.com/app/apikey), and [Tavily](https://app.tavily.com/home)
 
-### Prerequisites
-- Node.js (v18+)
-- Python (3.9+)
-- [Tavily API Key](https://tavily.com/)
-- [Gemini API Key](https://aistudio.google.com/app/apikey)
+Accounts are local to this deployment. There is no email verification or password reset flow yet, so use an email address you can identify and a unique password.
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/yash23082007/Dialectica.git
-cd Dialectica
+## Run locally
+
+### 1. Configure provider keys
+
+Create `backend/.env` using `backend/.env.example` as a guide:
+
+```env
+GROQ_API_KEY=your_groq_api_key
+GEMINI_API_KEY=your_google_ai_studio_api_key
+TAVILY_API_KEY=your_tavily_api_key
 ```
 
-### 2. Setup the Python Backend
-Navigate to the backend directory and install the required Python packages. It is recommended to use a virtual environment.
+The local `.env` is ignored by Git. Keys stay in the Python backend and are never sent to the browser.
+Passwords are salted and hashed with scrypt. Sessions use random server-side tokens stored as hashes and an HTTP-only, SameSite=Strict cookie. SQLite stores accounts and decisions in `backend/counterpoint.db`, which is also ignored by Git.
 
-```bash
+### 2. Start the backend
+
+```powershell
 cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Run the FastAPI server:
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-The backend will now be running on `http://localhost:8000`.
+### 3. Start the web app
 
-### 3. Setup the Vite Frontend
-Open a new terminal window, navigate to the root directory, and install the Node dependencies:
+In a second terminal from the project root:
 
-```bash
+```powershell
 npm install
-```
-
-Start the Vite development server:
-```bash
 npm run dev
 ```
-The frontend will be accessible at `http://localhost:5173`.
 
-## 💻 Usage
-1. Open the frontend application in your browser.
-2. Enter your Tavily and Gemini API keys (these are sent securely to your local backend).
-3. Type in the decision you want to evaluate and list your criteria.
-4. Click **Start Debate**.
-5. Watch as the agents research, argue, and finally present the judge's decision matrix!
+Open the local URL printed by Vite. Its development server forwards `/api` requests to the backend on port 8000.
 
-## 🤝 Contributing
-Contributions are welcome! If you have ideas for new features, better agent prompts, or UI improvements, please open an issue or submit a pull request.
+On an HTTPS deployment, set `COOKIE_SECURE=true` and configure a persistent private volume for `DATABASE_PATH`. The default cookie setting is for local HTTP development. Back up the SQLite database securely; it contains account emails and saved decision content.
 
-## 📄 License
-This project is licensed under the MIT License.
+## Optional model settings
+
+Set `GROQ_MODEL` or `GEMINI_MODEL` in `backend/.env` to override the defaults (`openai/gpt-oss-120b` and `gemini-2.5-flash`). The chosen model must be available to your provider account.
+
+## API
+
+- `GET /api/health` reports backend status and whether provider keys are configured.
+- `POST /api/auth/signup` and `POST /api/auth/login` create accounts and start sessions; `POST /api/auth/logout` ends a session; `GET /api/auth/me` returns the signed-in account.
+- `POST /api/debate` requires a session, accepts a decision topic and criteria, returns `for`, `against`, `verdict`, and cited `sources`, and saves the decision to the signed-in account.
+- `GET /api/decisions` returns the signed-in account's history. `DELETE /api/decisions` clears it.
