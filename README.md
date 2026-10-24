@@ -63,14 +63,13 @@ On an HTTPS deployment, set `COOKIE_SECURE=true` and configure a persistent priv
 
 ## Deploy to Vercel with multiple services
 
-The root `vercel.json` defines two Vercel services:
+The root `vercel.json` defines the Vercel frontend service:
 
 - `app` builds and serves the Vite frontend at `/`.
-- `counterpoint-api` runs FastAPI and receives public `/api/*` requests. Its routes already use the `/api/...` prefix, which the Vercel rewrite preserves.
 
-Vercel services are in beta. Import this repository into a Vercel project with the project root at the repository root and the framework set to **Services** (or let Vercel detect the `services` configuration). Browser API requests use same-origin `/api/...` URLs and Vercel routes them directly to FastAPI. No service binding is needed because neither service makes a server-side request to the other.
+The `/api/*` rewrite forwards same-origin browser requests to the Render FastAPI service at `https://counterpoint-api-q1yx.onrender.com`. This keeps browser requests on the Vercel domain while using Render's persistent disk for account and decision data. No Vercel service binding is needed because the app does not call another Vercel service.
 
-Set these project environment variables in Vercel for the environments you deploy:
+Set these environment variables on the Render API service:
 
 ```text
 GROQ_API_KEY
@@ -81,9 +80,9 @@ GOOGLE_CLIENT_ID
 
 For local development, the ordinary Vite dev command proxies `/api` to FastAPI on port 8000. The Vercel multi-service setup uses same-origin rewrites for production.
 
-### Database requirement before production
+### Database storage
 
-The current backend stores accounts, sessions, and decisions in a local SQLite file. Vercel Functions have a read-only filesystem apart from temporary `/tmp` storage, and function instances do not share a permanent SQLite file. A Vercel deployment therefore needs a shared persistent database (for example, PostgreSQL) before real users create accounts or save decisions. Do not point `DATABASE_PATH` at `/tmp` for production data. The current `render.yaml` remains available for the separate Render deployment, which uses a persistent disk for SQLite.
+The Render deployment in `render.yaml` stores accounts, sessions, and decisions in SQLite on a persistent disk. The Vercel frontend uses that Render API. If FastAPI is moved back to Vercel, replace SQLite with a shared persistent database first; Vercel function filesystems are not durable or shared.
 
 ### Google sign-in
 
