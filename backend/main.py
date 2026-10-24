@@ -31,6 +31,15 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
+@app.get("/")
+async def root():
+    return {
+        "service": "Counterpoint API",
+        "status": "ok",
+        "health": "/api/health",
+    }
+
+
 @app.middleware("http")
 async def require_vercel_proxy(request: Request, call_next):
     proxy_token = os.getenv("BACKEND_PROXY_TOKEN", "").strip()
