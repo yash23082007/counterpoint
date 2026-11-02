@@ -2,7 +2,10 @@
 
 Counterpoint helps people examine a consequential choice before acting. It combines current web sources, user priorities, opposing arguments, a red-team challenge, and a final recommendation in a saved decision brief.
 
-## The decision team
+## The decision workflow
+
+Counterpoint runs a fixed role-based sequence of model calls. Some roles run in parallel. This is a structured analysis pipeline, not an autonomous agent: roles do not plan tasks, use operational tools, or take actions. The brief exposes role inputs, generated contributions, retrieved sources, and uncertainty so a person can review the reasoning. A person remains responsible for verifying important facts and for any consequential action.
+
 
 1. **Framer** identifies assumptions, missing information, and research angles.
 2. **Researcher** checks the relevance and limitations of search results.
@@ -11,7 +14,7 @@ Counterpoint helps people examine a consequential choice before acting. It combi
 5. **Criteria evaluator** returns a confidence estimate, rough fit scores, and facts that could change the recommendation.
 6. **Judge** weighs all of the above and writes the recommendation.
 
-Users can compare two to five options, attach one JPG/PNG/WebP image for visual analysis, set criterion priorities, stress-test alternate priorities or assumptions, record an outcome, and request a review of patterns across past decisions. The scorecard is a model judgment, not a calibrated measurement. Search snippets and AI analysis can be wrong; follow source links and verify important facts.
+Search results are retrieved evidence, not independently verified sources. User-provided details are treated as given; generated judgments are inferences, and missing information is surfaced as assumptions or unknowns. Users can compare two to five options, attach one JPG/PNG/WebP image for visual analysis, set criterion priorities, stress-test alternate priorities or assumptions, record an outcome, and request a review of patterns across past decisions. The scorecard compares each listed option against each criterion before the judge synthesizes a recommendation. Scores are model judgments, not calibrated measurements. Search snippets and AI analysis can be wrong; follow source links and verify important facts.
 
 ## Data and privacy
 
@@ -78,13 +81,13 @@ The blueprint sets `COOKIE_SECURE=true` and `DATABASE_PATH=/var/data/counterpoin
 
 ## Usage limits
 
-To control model-provider spend, each signed-in account is limited to six full decision analyses per hour, twenty scenario reassessments per hour, and four learning reviews per day. Authentication endpoints also have per-IP attempt limits. The limits are enforced by SQLite and apply per application instance.
+To control model-provider spend, each signed-in account is limited to six full decision analyses per hour, twenty scenario reassessments per hour, and four learning reviews per day. Authentication endpoints also have per-IP attempt limits. Forwarded IP headers are ignored unless the direct peer matches an explicitly configured `TRUSTED_PROXY_CIDRS` network. Configure only proxy ranges you control; otherwise the direct connection peer address is used. The limits are enforced by SQLite and apply per application instance.
 
-Each full analysis makes several model-provider calls plus a web search. An image adds a Gemini call. Long response times are possible; scenario reruns reuse saved evidence and do not perform a new web search.
+Each full analysis makes several model-provider calls plus a web search. The search query uses only the trimmed decision topic and criteria; framer output and personal context are not sent to Tavily. An image adds a Gemini call. The progress trail shows the fixed workflow, not live per-role completion events. Long response times are possible; scenario reruns reuse saved evidence and do not perform a new web search.
 
 ## API overview
 
-- `GET /api/health` reports backend health and whether provider keys are configured.
+- `GET /api/health` reports database readiness and whether provider keys are configured; it does not make live calls to provider services.
 - `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, and `GET /api/auth/me` manage email/password sessions.
 - `POST /api/debate` creates and saves a decision analysis.
 - `GET /api/decisions` lists the signed-in user's decisions; `DELETE /api/decisions` clears them.
@@ -92,7 +95,7 @@ Each full analysis makes several model-provider calls plus a web search. An imag
 - `POST /api/decisions/{id}/scenario` reassesses a saved decision under new criterion weights and an optional assumption.
 - `POST /api/decisions/learning-review` reviews up to 30 reported outcomes for that account.
 
-`POST /api/debate` accepts JSON fields `topic`, `criteria`, optional `options` (two to five), `mind_changer`, `context`, and `weights`. An optional image can be sent as base64 in `image_data` with `image_mime` and `image_name`; supported MIME types are JPEG, PNG, and WebP, up to 5 MB decoded size.
+`POST /api/debate` accepts JSON fields `topic`, `criteria`, optional `options` (two to five; without them, broad proceed/do-not-proceed paths are inferred), `mind_changer`, `context`, and `weights`. The response includes an option-by-criterion comparison; missing evaluator rows are returned as unavailable instead of being treated as zero. An optional image can be sent as base64 in `image_data` with `image_mime` and `image_name`; supported MIME types are JPEG, PNG, and WebP, up to 5 MB decoded size.
 
 ## Current limitations
 

@@ -6,6 +6,7 @@ type DebateResult = {
   topic: string;
   criteria: string[];
   options?: string[];
+  comparison_options?: string[];
   mind_changer?: string;
   context?: string;
   weights?: Record<string, number>;
@@ -17,7 +18,7 @@ type DebateResult = {
   framing?: string;
   research_review?: string;
   confidence?: "Low" | "Medium" | "High" | string;
-  scorecard?: { criterion: string; score: number; reasoning: string; sources?: number[] }[];
+  scorecard?: { option?: string; criterion: string; score: number | null; reasoning: string; sources?: number[] }[];
   change_triggers?: string[];
   scenarios?: { weights: Record<string, number>; assumption?: string; verdict: string; created_at: number }[];
   for: string;
@@ -70,8 +71,9 @@ app.innerHTML = `
       <div class="criteria-list"></div>
     </aside>
     <main class="main-content">
+      <nav class="mobile-nav" aria-label="Workspace navigation"><button type="button" data-mobile-action="new" aria-current="page"><span aria-hidden="true">✳</span><b>New</b></button><button type="button" data-mobile-action="history"><span aria-hidden="true">◷</span><b>History</b></button><button type="button" data-mobile-action="criteria"><span aria-hidden="true">☷</span><b>Criteria</b></button></nav>
       <header class="topbar"><div class="breadcrumb">Decisions <span>/</span> <b>New decision</b></div><div class="top-actions"><span id="user-email" class="user-email"></span><button class="text-btn" id="logout">Sign out</button><button class="text-btn" id="how-it-works">How it works <span>↗</span></button><button type="button" class="theme-toggle" aria-label="Switch to light theme" title="Switch to light theme">☼ Light</button></div></header>
-      <section class="intro"><div class="eyebrow"><span class="pulse"></span> EVIDENCE-LED DECISIONS</div><h1>Think it through.<br><em>Then decide.</em></h1><p>Put a real decision on trial. Two independent advocates<br class="desktop-only"> will make the strongest case for each side.</p></section>
+      <section class="intro"><div class="eyebrow"><span class="pulse"></span> EVIDENCE-LED DECISIONS</div><h1>Think it through.<br><em>Then decide.</em></h1><p>Put a real decision on trial. The team compares each path against your criteria<br class="desktop-only"> before a judge weighs the trade-offs.</p></section>
       <section class="decision-card" id="decision-card">
         <div class="card-heading"><div><span class="step-number">01</span><h2>What are you deciding?</h2></div></div>
         <div class="decision-prompts"><span>START WITH A COMMON CHOICE</span><div><button type="button" data-template="career">A career move</button><button type="button" data-template="home">Where to live</button><button type="button" data-template="purchase">Buy or wait</button></div></div>
@@ -95,7 +97,7 @@ app.innerHTML = `
         <button class="start-button" id="start-debate"><span class="button-copy">Start the debate</span><span class="button-arrow">→</span></button>
         <div class="privacy-foot">Your topic and criteria go to Tavily search. Decision details and context go to AI providers. Images go to Gemini, not web search; image bytes are not saved by this app, but their filename and analysis are. Saved analyses and outcome notes stay with your account.</div>
       </section>
-      <section class="loading-card hidden" id="loading-card" aria-live="polite"><div class="loading-orbit"><span></span><span></span><span></span></div><div class="eyebrow">THE DECISION TEAM IS WORKING</div><h2>Testing the decision from every side.</h2><p id="loading-step">The framer is surfacing assumptions…</p><div class="loading-track"><span></span></div><div class="loading-roles"><span class="role-pill judge-pill">⌖ Framer</span><span class="role-pill judge-pill">⌕ Researcher</span><span class="role-pill for-pill">↗ In favor</span><span class="role-pill against-pill">↙ Against</span><span class="role-pill against-pill">⌁ Red team</span><span class="role-pill judge-pill">✦ The judge</span></div></section>
+      <section class="loading-card hidden" id="loading-card" aria-live="polite"><div class="loading-orbit"><span></span><span></span><span></span></div><div class="eyebrow">FIXED ROLE-BASED WORKFLOW</div><h2>Testing the decision from every side.</h2><p id="loading-step">Working through each stage; response times vary.</p><div class="loading-track"><span></span></div>${workflowTrailMarkup(false)}</section>
       <section class="results hidden" id="results"></section>
       <section class="history-view hidden" id="history-view"></section>
       <footer class="page-footer"><span>COUNTERPOINT</span><span>Groq · Gemini · Tavily</span></footer>
@@ -373,8 +375,27 @@ async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok)
-    throw new Error(data.detail || "The request could not be completed.");
+    throw new Error(formatApiError(data.detail, "The request could not be completed."));
   return data as T;
+}
+
+function formatApiError(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const message = (item as { msg?: unknown }).msg;
+        return typeof message === "string" ? message : "";
+      })
+      .filter(Boolean);
+    if (messages.length) return messages.join(" ");
+  }
+  if (detail && typeof detail === "object") {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return fallback;
 }
 
 async function loadHistory() {
@@ -402,6 +423,11 @@ function showView(view: "form" | "history") {
   $("#history-view").classList.toggle("hidden", !isHistory);
   $("#new-decision").classList.toggle("active", !isHistory);
   $("#show-history").classList.toggle("active", isHistory);
+  app.querySelectorAll<HTMLButtonElement>("[data-mobile-action]").forEach((button) => {
+    const selected = button.dataset.mobileAction === (isHistory ? "history" : "new");
+    if (selected) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
   $(".breadcrumb").innerHTML = isHistory
     ? "Decisions <span>/</span> <b>History</b>"
     : "Decisions <span>/</span> <b>New decision</b>";
@@ -467,6 +493,37 @@ function formatScenarioLabel(scenario: NonNullable<DebateResult["scenarios"]>[nu
   return [scenario.assumption, priorities].filter(Boolean).map((value) => escapeHtml(value ?? "")).join(" · ");
 }
 
+function workflowTrailMarkup(completed: boolean) {
+  const stages = ["Frame", "Research", "Advocate", "Red team", "Judge"];
+  return `<ol class="workflow-trail ${completed ? "is-complete" : "is-running"}" aria-label="Fixed role-based analysis workflow">${stages.map((stage, index) => `<li><span class="workflow-index">0${index + 1}</span><strong>${stage}</strong>${completed ? '<span class="workflow-status">Done</span>' : ""}</li>`).join("")}</ol>`;
+}
+
+function agentWorkflowMarkup(result: DebateResult) {
+  const sources = result.sources?.length ?? 0;
+  const userInputs = [
+    `Decision: ${result.topic}`,
+    ...(result.options ?? []).map((option) => `Option: ${option}`),
+    ...(result.criteria ?? []).map((criterion) => `Priority: ${criterion} (${result.weights?.[criterion] === 3 ? "high" : result.weights?.[criterion] === 1 ? "lower" : "normal"})`),
+    ...(result.context ? [`Context supplied by you: ${result.context}`] : []),
+    ...(result.mind_changer ? [`Your decision test: ${result.mind_changer}`] : []),
+  ].map(escapeHtml).join("<br>");
+  const sourceLinks = (result.sources ?? []).map((source, index) => {
+    const url = /^https?:\/\//i.test(source.url) ? source.url : "#";
+    return `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">[${index + 1}] ${escapeHtml(source.title)}</a> <span class="source-provenance">retrieved; not independently verified</span></li>`;
+  }).join("");
+  const commonInput = `${userInputs}<p class="provenance-explainer">User-provided details are taken as supplied; the system does not independently verify them.</p>`;
+  const visualInput = result.image_analysis ? `<p>AI visual interpretation supplied to this role:</p>${formatText(result.image_analysis, sources)}` : "";
+  const evaluatorInput = (result.scorecard ?? []).map((item) => `<p>${escapeHtml(item.option || "Option")} / ${escapeHtml(item.criterion)}: ${item.score == null ? "No estimate returned" : `${Math.max(0, Math.min(5, Number(item.score) || 0))}/5`} - ${formatText(item.reasoning, sources)}</p>`).join("");
+  const cards = [
+    { name: "Framer", label: "AI-generated framing, unknowns, and assumptions", input: `${commonInput || "Decision topic and criteria supplied in the form."}<p>Role: frame the choice, identify unknowns, and suggest research angles.</p>`, uncertainty: "Identifies missing information and assumptions; these are prompts for review, not verified facts.", body: formatText(result.framing || "No framing notes were returned.", sources) },
+    { name: "Research", label: "AI-generated source assessment", input: `${formatText(result.framing || "Decision topic and criteria.", sources)}${sourceLinks ? `<ul>${sourceLinks}</ul>` : "No search results were retrieved."}`, uncertainty: "Search snippets may be incomplete, outdated, or irrelevant. Their claims have not been independently verified.", body: formatText(result.research_review || "No research appraisal was returned.", sources) },
+    { name: "Advocate", label: "AI-generated arguments", input: `${commonInput}<p>Framing:</p>${formatText(result.framing || "No framing returned.", sources)}<p>Research assessment:</p>${formatText(result.research_review || "No assessment returned.", sources)}${sourceLinks ? `<p>Retrieved sources supplied to the advocates:</p><ul>${sourceLinks}</ul>` : "<p>No search sources were supplied.</p>"}${result.image_analysis ? `<p>AI visual interpretation supplied:</p>${formatText(result.image_analysis, sources)}` : ""}`, uncertainty: "Arguments interpret supplied context and retrieved material; unsupported points may rely on assumptions.", body: `<section class="agent-side"><b>Case for</b>${formatText(result.for, sources)}</section><section class="agent-side"><b>Case against</b>${formatText(result.against, sources)}</section>` },
+    { name: "Red team", label: "AI-generated critique", input: `<p>Reviews the advocate cases, user-supplied decision details, research assessment, and retrieved sources.</p>${commonInput}${visualInput}<p>Case for:</p>${formatText(result.for, sources)}<p>Case against:</p>${formatText(result.against, sources)}<p>Research assessment:</p>${formatText(result.research_review || "No assessment returned.", sources)}${sourceLinks ? `<ul>${sourceLinks}</ul>` : "<p>No search sources were supplied.</p>"}`, uncertainty: "The critique can miss risks or alternatives; it is not an exhaustive review.", body: formatText(result.red_team || "No red-team review was returned.", sources) },
+    { name: "Judge", label: "AI-generated recommendation", input: `<p>Considers user-supplied details, evidence, both advocate cases, the red-team review, and the parallel option-by-criterion assessment.</p>${commonInput}${visualInput}<p>Case for:</p>${formatText(result.for, sources)}<p>Case against:</p>${formatText(result.against, sources)}<p>Red-team review:</p>${formatText(result.red_team || "No review returned.", sources)}<p>Research assessment:</p>${formatText(result.research_review || "No assessment returned.", sources)}<p>Parallel criteria evaluator input to Judge:</p>${evaluatorInput}${sourceLinks ? `<ul>${sourceLinks}</ul>` : "<p>No search sources were supplied.</p>"}`, uncertainty: `Confidence: ${escapeHtml(result.confidence ?? "Medium")}. Scores are rough AI judgments, not measurements. The recommendation can be wrong or incomplete.`, body: `${formatText(result.verdict, sources)}${result.scorecard?.length ? `<h4>Criteria evaluator contribution (parallel to red-team review)</h4>${result.scorecard.map((item) => `<p><strong>${escapeHtml(item.option || "Option")} / ${escapeHtml(item.criterion)}:</strong> ${item.score == null ? "No estimate returned" : `${Math.max(0, Math.min(5, Number(item.score) || 0))}/5`}; ${formatText(item.reasoning, sources)}</p>`).join("")}` : ""}${result.change_triggers?.length ? `<h4>AI-generated change triggers</h4><ul>${result.change_triggers.map((trigger) => `<li>${escapeHtml(trigger)}</li>`).join("")}</ul>` : ""}` },
+  ];
+  return `<section class="agent-workflow"><div class="agent-workflow-heading"><div><span class="eyebrow">FIXED ROLE-BASED MODEL WORKFLOW</span><h3>How this brief was built</h3></div><span class="workflow-key">Model calls follow preset roles; some stages run in parallel. They do not plan tasks, operate tools, or take actions.</span></div>${workflowTrailMarkup(true)}<p class="workflow-responsibility">This brief supports your judgment. A person remains responsible for verifying important facts and deciding whether to take any consequential action.</p><div class="workflow-disclosures">${cards.map((card, index) => `<details class="workflow-agent"><summary><span class="workflow-index">0${index + 1}</span><strong>${card.name}</strong><span class="provenance-chip provenance-inference">${card.label}</span><span class="disclosure-caret" aria-hidden="true"></span></summary><div class="workflow-agent-body"><div class="workflow-field"><b>Input</b><div>${card.input}</div></div><div class="workflow-field"><b>Contribution</b><div>${card.body}</div></div><div class="workflow-field workflow-uncertainty"><b>Uncertainty and limits</b><p>${card.uncertainty}</p></div></div></details>`).join("")}</div></section>`;
+}
+
 function displayResult(result: DebateResult, save = true) {
   if (save) {
     history.unshift(result);
@@ -480,17 +537,12 @@ function displayResult(result: DebateResult, save = true) {
     ? `<section class="sources-card"><div class="sources-heading"><span class="argument-label">RESEARCH SOURCES</span><span>${result.sources!.length} results from Tavily</span></div><div class="sources-list">${result
         .sources!.map((source, index) => {
           const safeUrl = /^https?:\/\//i.test(source.url) ? source.url : "#";
-          return `<a class="source-item" id="source-${index + 1}" href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer"><span class="source-number">[${index + 1}]</span><span><strong>${escapeHtml(source.title)}</strong><small>${escapeHtml(source.url)}</small></span><span class="source-arrow">↗</span></a>`;
+          return `<a class="source-item" id="source-${index + 1}" href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer"><span class="source-number">[${index + 1}]</span><span><strong>${escapeHtml(source.title)}</strong><small class="source-provenance">Retrieved result; not independently verified</small><small>${escapeHtml(source.url)}</small></span><span class="source-arrow">↗</span></a>`;
         })
         .join("")}</div></section>`
     : '<div class="evidence-note"><span>ⓘ</span><p>No search sources were returned. Treat factual claims as unverified.</p></div>';
-  results.innerHTML = `<button class="back-link" id="back-to-form">← New decision</button><div class="result-heading"><div class="eyebrow"><span class="pulse"></span> DEBATE COMPLETE</div><h2>Your decision, examined.</h2><p class="result-topic">${escapeHtml(result.topic)}</p></div><div class="evidence-note"><span>ⓘ</span><p><strong>Evidence-led, still an AI analysis.</strong> The advocates use the linked search results where relevant. Verify important claims and consider how well each source applies to your situation.</p></div><div class="argument-grid"><article class="argument-card argument-for"><div class="argument-head"><span class="argument-symbol">↗</span><div><span class="argument-label">THE CASE FOR</span><h3>Reasons to say yes</h3></div></div><div class="argument-copy">${formatText(result.for, result.sources?.length ?? 0)}</div></article><article class="argument-card argument-against"><div class="argument-head"><span class="argument-symbol">↙</span><div><span class="argument-label">THE CASE AGAINST</span><h3>Reasons to pause</h3></div></div><div class="argument-copy">${formatText(result.against, result.sources?.length ?? 0)}</div></article></div>${sourcesHtml}<article class="verdict-card"><div class="verdict-head"><span class="verdict-icon">✦</span><div><span class="argument-label">THE JUDGE’S VIEW</span><h3>A considered recommendation</h3></div></div><div class="verdict-copy">${formatText(result.verdict, result.sources?.length ?? 0)}</div></article><div class="result-actions"><button class="secondary-button" id="copy-result">Copy summary</button><button class="secondary-button" id="download-brief">Download decision brief</button><button class="start-button compact" id="another-decision"><span class="button-copy">Try another decision</span><span class="button-arrow">→</span></button></div>`;
-  if (result.red_team) {
-    results.querySelector(".argument-grid")?.insertAdjacentHTML(
-      "afterend",
-      `<article class="verdict-card red-team-card"><div class="verdict-head"><span class="verdict-icon">⌁</span><div><span class="argument-label">RED-TEAM REVIEW</span><h3>What could undermine this call?</h3></div></div><div class="verdict-copy">${formatText(result.red_team, result.sources?.length ?? 0)}</div></article>`,
-    );
-  }
+  results.innerHTML = `<button class="back-link" id="back-to-form">← New decision</button><div class="result-heading"><div class="eyebrow"><span class="pulse"></span> DEBATE COMPLETE</div><h2>Your decision, examined.</h2><p class="result-topic">${escapeHtml(result.topic)}</p></div><div class="evidence-note"><span>ⓘ</span><p><strong>Evidence-led, still an AI analysis.</strong> The advocates use the linked search results where relevant. Verify important claims and consider how well each source applies to your situation.</p></div>${sourcesHtml}<article class="verdict-card"><div class="verdict-head"><span class="verdict-icon">✦</span><div><span class="argument-label">THE JUDGE’S VIEW</span><h3>A considered recommendation</h3></div></div><div class="verdict-copy">${formatText(result.verdict, result.sources?.length ?? 0)}</div></article><div class="result-actions"><button class="secondary-button" id="copy-result">Copy summary</button><button class="secondary-button" id="download-brief">Download decision brief</button><button class="start-button compact" id="another-decision"><span class="button-copy">Try another decision</span><span class="button-arrow">→</span></button></div>`;
+  results.querySelector(".evidence-note")?.insertAdjacentHTML("afterend", agentWorkflowMarkup(result));
   if (result.id) {
     const outcomeMarkup = `<section class="outcome-card"><div class="verdict-head"><span class="verdict-icon">↻</span><div><span class="argument-label">CLOSE THE LOOP</span><h3>What did you decide?</h3></div></div><p>Record your choice and whether the analysis helped. Your feedback improves your personal learning review.</p><label for="outcome-choice">Your choice</label><input id="outcome-choice" maxlength="100" value="${escapeHtml(result.outcome?.choice ?? "")}" placeholder="e.g. I accepted the offer"><label for="outcome-notes">What happened? <span>Optional</span></label><textarea id="outcome-notes" maxlength="2000" rows="2" placeholder="Add an update now, or come back after the decision plays out.">${escapeHtml(result.outcome?.notes ?? "")}</textarea><div class="outcome-ratings"><label for="outcome-usefulness">Did this analysis help?<select id="outcome-usefulness"><option value="">Skip for now</option><option value="yes" ${result.outcome?.usefulness === "yes" ? "selected" : ""}>Yes</option><option value="partly" ${result.outcome?.usefulness === "partly" ? "selected" : ""}>Partly</option><option value="no" ${result.outcome?.usefulness === "no" ? "selected" : ""}>No</option></select></label><label for="outcome-source-trust">Trust in the evidence<select id="outcome-source-trust"><option value="">Skip for now</option>${[1, 2, 3, 4, 5].map((value) => `<option value="${value}" ${result.outcome?.source_trust === value ? "selected" : ""}>${value} / 5</option>`).join("")}</select></label></div><div class="outcome-actions"><button class="secondary-button" id="save-outcome">Save outcome</button><span id="outcome-status" role="status">${result.outcome?.updated_at ? "Saved to this decision" : ""}</span></div></section>`;
     results.querySelector(".verdict-card")?.insertAdjacentHTML("afterend", outcomeMarkup);
@@ -523,25 +575,19 @@ function displayResult(result: DebateResult, save = true) {
   }
   const decisionNotes = [
     (result.options?.length ?? 0) >= 2
-      ? `<div class="option-comparison"><span class="argument-label">THE PATHS YOU’RE WEIGHING</span><div class="option-paths">${result.options!.map((option, index) => `<span>${escapeHtml(option)}</span>${index < result.options!.length - 1 ? "<b>OR</b>" : ""}`).join("")}</div></div>`
+      ? `<div class="option-comparison"><span class="argument-label">USER-PROVIDED OPTIONS</span><div class="option-paths">${result.options!.map((option, index) => `<span>${escapeHtml(option)}</span>${index < result.options!.length - 1 ? "<b>OR</b>" : ""}`).join("")}</div></div>`
       : "",
     result.mind_changer
-      ? `<div class="mind-changer-note"><span class="note-mark">↗</span><div><span class="argument-label">YOUR DECISION TEST</span><p>If this changes, revisit the call: <strong>${escapeHtml(result.mind_changer)}</strong></p></div></div>`
+      ? `<div class="mind-changer-note"><span class="note-mark">↗</span><div><span class="argument-label">USER-PROVIDED DECISION TEST</span><p>If this changes, revisit the call: <strong>${escapeHtml(result.mind_changer)}</strong></p></div></div>`
       : "",
     result.context
-      ? `<div class="mind-changer-note"><span class="note-mark">◎</span><div><span class="argument-label">CONTEXT CONSIDERED</span><p>${escapeHtml(result.context)}</p></div></div>`
-      : "",
-    result.framing
-      ? `<div class="agent-note"><div><span class="argument-label">THE FRAMER · DECISION SHAPE & OPEN QUESTIONS</span><div>${formatText(result.framing, result.sources?.length ?? 0)}</div></div></div>`
-      : "",
-    result.research_review
-      ? `<div class="agent-note"><div><span class="argument-label">THE RESEARCHER · EVIDENCE QUALITY</span><div>${formatText(result.research_review, result.sources?.length ?? 0)}</div></div></div>`
+      ? `<div class="mind-changer-note"><span class="note-mark">◎</span><div><span class="argument-label">USER-PROVIDED CONTEXT</span><p>${escapeHtml(result.context)}</p></div></div>`
       : "",
     result.image_analysis
-      ? `<div class="image-analysis-note"><span class="note-mark">▧</span><div><span class="argument-label">VISUAL EVIDENCE${result.image_name ? ` · ${escapeHtml(result.image_name)}` : ""}</span><div class="verdict-copy">${formatText(result.image_analysis, result.sources?.length ?? 0)}</div><small>The image was analyzed by AI. Verify important details against the original.</small></div></div>`
+      ? `<div class="image-analysis-note"><span class="note-mark">▧</span><div><span class="argument-label">AI-GENERATED VISUAL INTERPRETATION${result.image_name ? ` · ${escapeHtml(result.image_name)}` : ""}</span><div class="verdict-copy">${formatText(result.image_analysis, result.sources?.length ?? 0)}</div><small>The image was analyzed by AI. Verify important details against the original.</small></div></div>`
       : "",
     result.criteria.length
-      ? `<div class="mind-changer-note"><span class="note-mark">≋</span><div><span class="argument-label">YOUR PRIORITIES</span><p>${result.criteria.map((item) => `${escapeHtml(item)} · ${result.weights?.[item] === 3 ? "highest" : result.weights?.[item] === 1 ? "lower" : "normal"}`).join(" &nbsp; / &nbsp; ")}</p></div></div>`
+      ? `<div class="mind-changer-note"><span class="note-mark">≋</span><div><span class="argument-label">USER-SET PRIORITIES</span><p>${result.criteria.map((item) => `${escapeHtml(item)} · ${result.weights?.[item] === 3 ? "highest" : result.weights?.[item] === 1 ? "lower" : "normal"}`).join(" &nbsp; / &nbsp; ")}</p></div></div>`
       : "",
   ].join("");
   results
@@ -549,13 +595,13 @@ function displayResult(result: DebateResult, save = true) {
     ?.insertAdjacentHTML("afterend", decisionNotes);
   if (result.scorecard?.length || result.change_triggers?.length || result.id) {
     const scorecardHtml = result.scorecard?.length
-      ? `<section class="scorecard-panel"><div class="verdict-head"><span class="verdict-icon">◒</span><div><span class="argument-label">CRITERION SCORECARD · ROUGH FIT, NOT MEASUREMENT</span><h3>How the recommendation fits your criteria</h3></div><span class="confidence-badge">${escapeHtml(result.confidence ?? "Medium")} confidence</span></div><div class="scorecard-list">${result.scorecard.map((item) => {
-          const score = Math.max(0, Math.min(5, Number(item.score) || 0));
-          return `<article class="scorecard-item"><div class="scorecard-title"><strong>${escapeHtml(item.criterion)}</strong><span>${score} / 5</span></div><div class="score-track" role="progressbar" aria-label="Fit for ${escapeHtml(item.criterion)}" aria-valuemin="0" aria-valuemax="5" aria-valuenow="${score}"><i style="width:${score * 20}%"></i></div><p>${formatText(item.reasoning, result.sources?.length ?? 0)}</p></article>`;
+      ? `<section class="scorecard-panel"><div class="verdict-head"><span class="verdict-icon">◒</span><div><span class="argument-label">AI-GENERATED OPTION COMPARISONS - ROUGH FIT, NOT MEASUREMENTS</span><h3>Trade-offs by option and criterion</h3></div><span class="confidence-badge">${escapeHtml(result.confidence ?? "Medium")} confidence</span></div>${!result.options?.length ? '<p class="scorecard-note">No options were entered, so these two broad comparison paths were inferred.</p>' : ""}<div class="scorecard-list">${result.scorecard.map((item) => {
+          const score = item.score == null ? null : Math.max(0, Math.min(5, Number(item.score) || 0));
+          return `<article class="scorecard-item"><div class="scorecard-title"><strong>${escapeHtml(item.option || "Prior decision")}: ${escapeHtml(item.criterion)}</strong><span>${score == null ? "No estimate" : `${score} / 5`}</span></div>${score == null ? "" : `<div class="score-track" role="progressbar" aria-label="${escapeHtml(item.option || "Prior decision")} fit for ${escapeHtml(item.criterion)}" aria-valuemin="0" aria-valuemax="5" aria-valuenow="${score}"><i style="width:${score * 20}%"></i></div>`}<p>${formatText(item.reasoning, result.sources?.length ?? 0)}</p></article>`;
         }).join("")}</div></section>`
       : "";
     const triggersHtml = result.change_triggers?.length
-      ? `<section class="change-triggers"><span class="argument-label">WHAT WOULD CHANGE THIS VIEW</span><ul>${result.change_triggers.map((trigger) => `<li>${escapeHtml(trigger)}</li>`).join("")}</ul></section>`
+      ? `<section class="change-triggers"><span class="argument-label">AI-GENERATED CHANGE TRIGGERS</span><ul>${result.change_triggers.map((trigger) => `<li>${escapeHtml(trigger)}</li>`).join("")}</ul></section>`
       : "";
     const scenarioHtml = result.id
       ? `<section class="scenario-panel"><div class="verdict-head"><span class="verdict-icon">⇄</span><div><span class="argument-label">SCENARIO SWITCHES</span><h3>What if the conditions changed?</h3></div></div><p>Change what matters or test a concrete assumption. The judge will reuse this evidence and explain whether the recommendation shifts.</p><div class="scenario-controls">${result.criteria.map((item) => `<label class="scenario-control"><span>${escapeHtml(item)}</span><input type="range" min="1" max="3" step="1" value="${result.weights?.[item] ?? 2}" data-scenario-weight="${escapeHtml(item)}"><span data-scenario-label="${escapeHtml(item)}">${result.weights?.[item] === 3 ? "Highest" : result.weights?.[item] === 1 ? "Lower" : "Normal"}</span></label>`).join("")}</div><label class="scenario-assumption-label" for="scenario-assumption">Test an assumption <span>Optional</span></label><input class="scenario-assumption" id="scenario-assumption" maxlength="1000" placeholder="e.g. Assume the start date slips by three months"><button class="secondary-button" id="run-scenario">Reassess this scenario</button><span id="scenario-status" role="status"></span><div id="scenario-result">${(result.scenarios ?? []).slice(-3).map((scenario) => `<article class="scenario-result"><span class="argument-label">${formatScenarioLabel(scenario) || "Saved scenario"}</span>${formatText(scenario.verdict, result.sources?.length ?? 0)}</article>`).join("")}</div></section>`
@@ -623,7 +669,7 @@ function displayResult(result: DebateResult, save = true) {
       .map((source, index) => `[${index + 1}] ${source.title} — ${source.url}`)
       .join("\n");
     await navigator.clipboard.writeText(
-      `Decision: ${result.topic}${optionText}${mindText}${contextText}\n\nPRIORITIES\n${priorityText}${result.image_analysis ? `\n\nVISUAL EVIDENCE${result.image_name ? ` (${result.image_name})` : ""}\n${result.image_analysis}` : ""}\n\nFOR\n${result.for}\n\nAGAINST\n${result.against}\n\nRED TEAM\n${result.red_team ?? ""}\n\nJUDGE\n${result.verdict}${sourceList ? `\n\nSOURCES\n${sourceList}` : ""}`,
+      `Decision: ${result.topic}${optionText}${mindText}${contextText}\n\nPRIORITIES\n${priorityText}${result.image_analysis ? `\n\nAI-GENERATED VISUAL INTERPRETATION${result.image_name ? ` (${result.image_name})` : ""}\n${result.image_analysis}` : ""}\n\nFOR\n${result.for}\n\nAGAINST\n${result.against}\n\nRED TEAM\n${result.red_team ?? ""}\n\nJUDGE\n${result.verdict}${sourceList ? `\n\nSOURCES\n${sourceList}` : ""}`,
     );
     $("#copy-result").textContent = "Copied ✓";
   });
@@ -791,6 +837,13 @@ $("#new-decision").addEventListener("click", () => {
   resetForm();
 });
 $("#show-history").addEventListener("click", () => showView("history"));
+app.querySelectorAll<HTMLButtonElement>("[data-mobile-action]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (button.dataset.mobileAction === "history") $("#show-history").click();
+    else if (button.dataset.mobileAction === "criteria") $("#edit-criteria").click();
+    else $("#new-decision").click();
+  });
+});
 $("#edit-criteria").addEventListener("click", () => {
   const criteriaInput = $("#criteria-input") as HTMLTextAreaElement;
   const criteriaDialog = $("#criteria-dialog") as HTMLDialogElement;
@@ -850,20 +903,6 @@ $("#start-debate").addEventListener("click", async () => {
   results.classList.add("hidden");
   window.scrollTo({ top: 0, behavior: "smooth" });
   const attachedImage = decisionImageInput.files?.[0];
-  const steps = [
-    ...(attachedImage ? ["The visual analyst and framer are defining the evidence…"] : ["The framer is surfacing assumptions and missing paths…"]),
-    "The researcher is checking sources against the decision…",
-    "The advocate for is building its case…",
-    "The advocate against is testing the other side…",
-    "The red team is looking for blind spots…",
-    "The judge is weighing the cases and your priorities…",
-  ];
-  const step = $("#loading-step");
-  let index = 0;
-  const timer = window.setInterval(() => {
-    index = Math.min(index + 1, steps.length - 1);
-    step.textContent = steps[index];
-  }, 6500);
   try {
     const imageData = attachedImage ? await fileAsBase64(attachedImage) : null;
     const response = await fetch("/api/debate", {
@@ -883,10 +922,10 @@ $("#start-debate").addEventListener("click", async () => {
     });
     const data = await response.json();
     if (!response.ok)
-      throw new Error(
-        data.detail ||
-          "The debate could not be completed. Check that the local API server is running.",
-      );
+      throw new Error(formatApiError(
+        data.detail,
+        "The debate could not be completed. Check that the local API server is running.",
+      ));
     displayResult({
       id: data.id,
       created_at: data.created_at,
@@ -903,6 +942,7 @@ $("#start-debate").addEventListener("click", async () => {
       framing: data.framing,
       research_review: data.research_review,
       scorecard: data.scorecard,
+      comparison_options: data.comparison_options,
       confidence: data.confidence,
       change_triggers: data.change_triggers,
       scenarios: data.scenarios ?? [],
@@ -919,7 +959,6 @@ $("#start-debate").addEventListener("click", async () => {
         ? cause.message
         : "Something went wrong. Please try again.";
   } finally {
-    clearInterval(timer);
     loading.classList.add("hidden");
   }
 });
