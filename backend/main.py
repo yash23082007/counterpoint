@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 app = FastAPI(title="Counterpoint API", version="1.0.0")
-API_CONTRACT_VERSION = "2026-11-02.2"
+API_CONTRACT_VERSION = "2026-11-02.3"
 DB_PATH = os.getenv(
     "DATABASE_PATH", os.path.join(os.path.dirname(__file__), "counterpoint.db")
 )

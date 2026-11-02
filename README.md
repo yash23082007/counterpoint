@@ -67,7 +67,7 @@ Open the local URL printed by Vite. The dev server proxies `/api` to `127.0.0.1:
 
 ## Deploy
 
-The frontend is configured for Vercel. `vercel.json` rewrites `/api/*` to the Render API URL currently set in that file. Confirm that destination matches the public URL of the Render service before deploying.
+The frontend is configured for Vercel. `vercel.json` rewrites `/api/*` to the Render API URL currently set in that file. Confirm that destination matches the public URL of the Render service before deploying. After a deploy, verify `/api/version` reports the current contract and that a signed-in request with three options is accepted.
 
 The Render service is defined in `render.yaml` and uses a persistent disk for SQLite. Configure these secrets on Render:
 
