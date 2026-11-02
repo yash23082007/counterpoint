@@ -1,16 +1,25 @@
-# Counterpoint — The Debate-to-Decision Engine
+# Counterpoint — Decision Lab
 
-Counterpoint helps you examine a difficult choice from multiple angles. Tavily finds relevant web sources, two Groq-powered advocates make the strongest fair case for and against a decision, and Gemini weighs both cases against your criteria.
+Counterpoint helps people examine a consequential choice before acting. It combines current web sources, user priorities, opposing arguments, a red-team challenge, and a final recommendation in a saved decision brief.
 
-## How it works
+## The decision team
 
-1. Describe a decision and select the criteria that matter to you.
-2. Tavily searches the web and provides source links to both Groq advocates.
-3. Groq generates the pro and con arguments in parallel, citing supplied sources where relevant.
-4. Gemini compares those arguments with your criteria and writes a recommendation, uncertainties, and next step.
-5. Sign in to revisit decisions saved to your account in SQLite.
+1. **Framer** identifies assumptions, missing information, and research angles.
+2. **Researcher** checks the relevance and limitations of search results.
+3. **Advocates** make the strongest fair case for and against the decision.
+4. **Red team** looks for blind spots and evidence that may not apply.
+5. **Criteria evaluator** returns a confidence estimate, rough fit scores, and facts that could change the recommendation.
+6. **Judge** weighs all of the above and writes the recommendation.
 
-Model responses can be mistaken and search snippets can lack context; open and verify important sources independently.
+Users can compare two to five options, attach one JPG/PNG/WebP image for visual analysis, set criterion priorities, stress-test alternate priorities or assumptions, record an outcome, and request a review of patterns across past decisions. The scorecard is a model judgment, not a calibrated measurement. Search snippets and AI analysis can be wrong; follow source links and verify important facts.
+
+## Data and privacy
+
+- The decision topic and criteria are sent to Tavily for search and to the AI providers for analysis. Options and personal context are sent to AI providers; personal context is not included in the Tavily query.
+- An attached image is sent to Gemini for visual analysis. The application does not save the image bytes; it saves the filename and generated observations with the decision.
+- Decision details, generated analysis, outcome notes, and feedback ratings are saved in the application database. The learning review sends up to 30 saved decisions with their outcome notes and ratings to Gemini when the user requests that review.
+- Use the in-app **Clear history** action to delete saved decisions. Account deletion and password reset are not currently available. Do not submit information you are not comfortable sending to these providers or storing in this account.
+- Provider data handling is subject to the policies and settings of Groq, Google Gemini, and Tavily.
 
 ## Requirements
 
@@ -18,27 +27,21 @@ Model responses can be mistaken and search snippets can lack context; open and v
 - Python 3.10+
 - API keys for [Groq](https://console.groq.com/keys), [Google AI Studio](https://aistudio.google.com/app/apikey), and [Tavily](https://app.tavily.com/home)
 
-Password-created accounts are local to this deployment. There is no password reset flow yet, so use an email address you can identify and a unique password. Google sign-in creates or returns an account using the verified Google identity.
-
 ## Run locally
 
 ### 1. Configure provider keys
 
-Create `backend/.env` using `backend/.env.example` as a guide:
+Create `backend/.env` from `backend/.env.example`:
 
 ```env
 GROQ_API_KEY=your_groq_api_key
 GEMINI_API_KEY=your_google_ai_studio_api_key
 TAVILY_API_KEY=your_tavily_api_key
-GOOGLE_CLIENT_ID=your_google_oauth_web_client_id.apps.googleusercontent.com
 ```
 
-To enable **Continue with Google**, create a Web application OAuth client in Google Cloud Console and add `http://127.0.0.1:5173` as an authorized JavaScript origin. Put its client ID in `GOOGLE_CLIENT_ID`, then restart the backend. Google ID tokens are verified server-side before a session is created.
+The `.env` file is ignored by Git; provider keys stay on the backend. Accounts use email and password.
 
-The local `.env` is ignored by Git. Keys stay in the Python backend and are never sent to the browser.
-Passwords are salted and hashed with scrypt. Sessions use random server-side tokens stored as hashes and an HTTP-only, SameSite=Strict cookie. SQLite stores accounts and decisions in `backend/counterpoint.db`, which is also ignored by Git.
-
-### 2. Start the backend
+### 2. Start the API
 
 ```powershell
 cd backend
@@ -48,7 +51,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### 3. Start the web app
+### 3. Start the frontend
 
 In a second terminal from the project root:
 
@@ -57,44 +60,43 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. Its development server forwards `/api` requests to the backend on port 8000.
+Open the local URL printed by Vite. The dev server proxies `/api` to `127.0.0.1:8000`.
 
-On an HTTPS deployment, set `COOKIE_SECURE=true` and configure a persistent private volume for `DATABASE_PATH`. The default cookie setting is for local HTTP development. Back up the SQLite database securely; it contains account emails and saved decision content.
+## Deploy
 
-## Deploy to Vercel with multiple services
+The frontend is configured for Vercel. `vercel.json` rewrites `/api/*` to the Render API URL currently set in that file. Confirm that destination matches the public URL of the Render service before deploying.
 
-The root `vercel.json` defines the Vercel frontend service:
-
-- `app` builds and serves the Vite frontend at `/`.
-
-The `/api/*` rewrite forwards same-origin browser requests to the Render FastAPI service at `https://counterpoint-api-q1yx.onrender.com`. This keeps browser requests on the Vercel domain while using Render's persistent disk for account and decision data. No Vercel service binding is needed because the app does not call another Vercel service.
-
-Set these environment variables on the Render API service:
+The Render service is defined in `render.yaml` and uses a persistent disk for SQLite. Configure these secrets on Render:
 
 ```text
 GROQ_API_KEY
 GEMINI_API_KEY
 TAVILY_API_KEY
-GOOGLE_CLIENT_ID
 ```
 
-For local development, the ordinary Vite dev command proxies `/api` to FastAPI on port 8000. The Vercel multi-service setup uses same-origin rewrites for production.
+The blueprint sets `COOKIE_SECURE=true` and `DATABASE_PATH=/var/data/counterpoint.db`. Keep the persistent disk private and back it up securely; it contains account email addresses, personal decision context, and saved analyses. SQLite is intended for this single-service deployment; use a shared managed database before scaling the API to multiple instances.
 
-### Database storage
+## Usage limits
 
-The Render deployment in `render.yaml` stores accounts, sessions, and decisions in SQLite on a persistent disk. The Vercel frontend uses that Render API. If FastAPI is moved back to Vercel, replace SQLite with a shared persistent database first; Vercel function filesystems are not durable or shared.
+To control model-provider spend, each signed-in account is limited to six full decision analyses per hour, twenty scenario reassessments per hour, and four learning reviews per day. Authentication endpoints also have per-IP attempt limits. The limits are enforced by SQLite and apply per application instance.
 
-### Google sign-in
+Each full analysis makes several model-provider calls plus a web search. An image adds a Gemini call. Long response times are possible; scenario reruns reuse saved evidence and do not perform a new web search.
 
-In Google Auth Platform, add the Vercel production domain as an **Authorized JavaScript origin**, such as `https://your-project.vercel.app` (no path or trailing slash), and add your Google account under **Audience → Test users** while the consent screen is in testing. Add a custom production domain separately. Google Identity Services verifies ID tokens through `GOOGLE_CLIENT_ID`; the app does not need the OAuth client secret.
+## API overview
 
-## Optional model settings
+- `GET /api/health` reports backend health and whether provider keys are configured.
+- `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, and `GET /api/auth/me` manage email/password sessions.
+- `POST /api/debate` creates and saves a decision analysis.
+- `GET /api/decisions` lists the signed-in user's decisions; `DELETE /api/decisions` clears them.
+- `PATCH /api/decisions/{id}/outcome` records a choice, follow-up notes, usefulness rating, and source-trust rating.
+- `POST /api/decisions/{id}/scenario` reassesses a saved decision under new criterion weights and an optional assumption.
+- `POST /api/decisions/learning-review` reviews up to 30 reported outcomes for that account.
 
-Set `GROQ_MODEL` or `GEMINI_MODEL` in `backend/.env` to override the defaults (`openai/gpt-oss-120b` and `gemini-2.5-flash`). The chosen model must be available to your provider account.
+`POST /api/debate` accepts JSON fields `topic`, `criteria`, optional `options` (two to five), `mind_changer`, `context`, and `weights`. An optional image can be sent as base64 in `image_data` with `image_mime` and `image_name`; supported MIME types are JPEG, PNG, and WebP, up to 5 MB decoded size.
 
-## API
+## Current limitations
 
-- `GET /api/health` reports backend status and whether provider keys are configured.
-- `POST /api/auth/signup` and `POST /api/auth/login` create accounts and start sessions; `POST /api/auth/logout` ends a session; `GET /api/auth/me` returns the signed-in account.
-- `POST /api/debate` requires a session, accepts a decision topic and criteria, returns `for`, `against`, `verdict`, and cited `sources`, and saves the decision to the signed-in account.
-- `GET /api/decisions` returns the signed-in account's history. `DELETE /api/decisions` clears it.
+- There is no email verification, password reset, or account deletion flow. Google sign-in has been removed. Existing Google-only accounts have no password credential and cannot sign in; their stored records are preserved.
+- Outcome reviews are based on user-reported notes and ratings; they are not independently verified or a cross-user learning system.
+- Criterion scores and confidence are model estimates and have not been calibrated against real-world decision outcomes.
+- Provider integrations and the deployed Vercel/Render path should be exercised with production credentials before inviting public users.

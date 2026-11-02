@@ -1084,6 +1084,9 @@ kbd {
   color: var(--muted);
   font-size: 10px;
 }
+.outcome-ratings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+.outcome-ratings label { display: grid; gap: 5px; color: var(--ink); font-size: 10px; font-weight: 600; }
+.outcome-ratings select { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); font: 10px "DM Sans", sans-serif; }
 .outcome-actions button:disabled {
   opacity: 0.6;
   cursor: wait;
@@ -1598,37 +1601,6 @@ dialog {
 .auth-conditional[hidden] {
   display: none;
 }
-.google-auth-area[hidden],
-.google-setup-note[hidden] {
-  display: none;
-}
-.auth-divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 17px 0 13px;
-  color: #aaa69d;
-  font-size: 9px;
-}
-.auth-divider::before,
-.auth-divider::after {
-  content: "";
-  height: 1px;
-  flex: 1;
-  background: #eceae4;
-}
-.google-signin-button {
-  display: flex;
-  justify-content: center;
-  min-height: 40px;
-}
-.google-setup-note {
-  margin: 14px 0 0;
-  text-align: center;
-  color: #9b8171;
-  font-size: 9px;
-  line-height: 1.5;
-}
 .decision-card,
 .argument-card,
 .sources-card,
@@ -2118,4 +2090,5 @@ dialog {
   .scenario-control { grid-template-columns: minmax(90px, 1fr) minmax(70px, 1fr) 52px; gap: 7px; }
   .confidence-badge { margin-left: 0; }
   #scenario-status { display: block; margin: 8px 0 0; }
+  .outcome-ratings { grid-template-columns: 1fr; }
 }

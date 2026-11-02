@@ -14,11 +14,8 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from fastapi import Request, Response
-from google.auth.exceptions import GoogleAuthError
-from google.auth.transport.requests import Request as GoogleRequest
-from google.oauth2 import id_token
 from pydantic import BaseModel, Field
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -42,20 +39,6 @@ async def root():
     }
 
 
-@app.middleware("http")
-async def require_vercel_proxy(request: Request, call_next):
-    proxy_token = os.getenv("BACKEND_PROXY_TOKEN", "").strip()
-    if proxy_token and request.url.path.startswith("/api/") and request.url.path != "/api/health":
-        supplied_token = request.headers.get("x-counterpoint-proxy-token", "")
-        if not hmac.compare_digest(proxy_token, supplied_token):
-            return Response(
-                content='{"detail":"Use the deployed web app to access this API."}',
-                status_code=403,
-                media_type="application/json",
-            )
-    return await call_next(request)
-
-
 def connect_db():
     connection = sqlite3.connect(DB_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
@@ -72,7 +55,6 @@ def initialize_db():
                 email TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_salt TEXT NOT NULL,
                 password_hash TEXT NOT NULL,
-                google_sub TEXT UNIQUE,
                 created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS sessions (
@@ -104,6 +86,11 @@ def initialize_db():
                 window_started INTEGER NOT NULL,
                 attempts INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS request_limits (
+                bucket TEXT PRIMARY KEY,
+                window_started INTEGER NOT NULL,
+                attempts INTEGER NOT NULL
+            );
         """)
         decision_columns = {
             row["name"] for row in db.execute("PRAGMA table_info(decisions)")
@@ -123,14 +110,6 @@ def initialize_db():
         }.items():
             if column not in decision_columns:
                 db.execute(f"ALTER TABLE decisions ADD COLUMN {column} {definition}")
-        user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)")}
-        if "google_sub" not in user_columns:
-            db.execute("ALTER TABLE users ADD COLUMN google_sub TEXT")
-        db.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL"
-        )
-
-
 initialize_db()
 
 
@@ -161,6 +140,45 @@ def consume_auth_attempt(bucket: str, maximum: int = 8, window: int = 900) -> bo
         return True
 
 
+def consume_request_limit(bucket: str, maximum: int, window: int) -> bool:
+    now = int(time.time())
+    with connect_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("DELETE FROM request_limits WHERE window_started < ?", (now - 86400,))
+        record = db.execute(
+            "SELECT window_started, attempts FROM request_limits WHERE bucket = ?",
+            (bucket,),
+        ).fetchone()
+        if not record or now - record["window_started"] >= window:
+            db.execute(
+                "INSERT OR REPLACE INTO request_limits(bucket, window_started, attempts) VALUES (?, ?, 1)",
+                (bucket, now),
+            )
+            return True
+        if record["attempts"] >= maximum:
+            return False
+        db.execute(
+            "UPDATE request_limits SET attempts = attempts + 1 WHERE bucket = ?",
+            (bucket,),
+        )
+        return True
+
+
+def enforce_user_rate_limit(user_id: int, action: str, maximum: int, window: int):
+    bucket = f"{action}:user:{user_id}"
+    if not consume_request_limit(bucket, maximum, window):
+        duration = (
+            f"about {window // 3600} hours"
+            if window >= 3600 and window % 3600 == 0
+            else f"about {max(1, (window + 59) // 60)} minutes"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=f"You’ve reached the {action.replace('-', ' ')} limit. Try again in {duration}.",
+            headers={"Retry-After": str(window)},
+        )
+
+
 def request_ip(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
     try:
@@ -178,7 +196,7 @@ def session_user(request: Request):
     now = int(time.time())
     with connect_db() as db:
         row = db.execute(
-            """SELECT users.id, users.email, users.google_sub FROM sessions
+            """SELECT users.id, users.email FROM sessions
             JOIN users ON users.id = sessions.user_id
             WHERE sessions.token_hash = ? AND sessions.expires_at > ?""",
             (digest, now),
@@ -192,7 +210,6 @@ def session_user(request: Request):
         return {
             "id": row["id"],
             "email": row["email"],
-            "google_connected": bool(row["google_sub"]),
         }
 
 
@@ -245,6 +262,13 @@ class ScenarioRequest(BaseModel):
     assumption: str = Field(default="", max_length=1000)
 
 
+class OutcomeRequest(BaseModel):
+    choice: str = Field(min_length=1, max_length=100)
+    notes: str = Field(default="", max_length=2000)
+    usefulness: str = Field(default="", max_length=10)
+    source_trust: int | None = Field(default=None, ge=1, le=5)
+
+
 class SignupRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=12, max_length=128)
@@ -255,134 +279,9 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
-class GoogleCredentialRequest(BaseModel):
-    credential: str = Field(min_length=20, max_length=10000)
-
-
 @app.get("/api/auth/me")
 async def auth_me(request: Request):
     return {"user": session_user(request)}
-
-
-@app.get("/api/auth/google/config")
-async def google_auth_config(response: Response):
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-    if not client_id:
-        return {"client_id": None}
-    nonce = secrets.token_urlsafe(32)
-    response.set_cookie(
-        "counterpoint_google_nonce",
-        nonce,
-        max_age=600,
-        httponly=True,
-        secure=COOKIE_SECURE,
-        samesite="strict",
-        path="/",
-    )
-    return {"client_id": client_id, "nonce": nonce}
-
-
-async def verified_google_identity(req: GoogleCredentialRequest, request: Request):
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-    expected_nonce = request.cookies.get("counterpoint_google_nonce")
-    if not client_id:
-        raise HTTPException(
-            status_code=503,
-            detail="Google sign-in is not configured. Add GOOGLE_CLIENT_ID to backend/.env and restart the API.",
-        )
-    if not expected_nonce:
-        raise HTTPException(
-            status_code=401,
-            detail="Google sign-in expired. Refresh the page and try again.",
-        )
-    try:
-        identity = await asyncio.to_thread(
-            id_token.verify_oauth2_token,
-            req.credential,
-            GoogleRequest(),
-            client_id,
-        )
-    except (ValueError, GoogleAuthError):
-        raise HTTPException(
-            status_code=401, detail="Google could not verify this sign-in. Try again."
-        ) from None
-    if (
-        identity.get("iss")
-        not in ("accounts.google.com", "https://accounts.google.com")
-        or not hmac.compare_digest(str(identity.get("nonce", "")), expected_nonce)
-        or not identity.get("sub")
-        or not identity.get("email_verified")
-    ):
-        raise HTTPException(
-            status_code=401, detail="Google could not verify this sign-in. Try again."
-        )
-    return identity
-
-
-@app.post("/api/auth/google")
-async def google_login(
-    req: GoogleCredentialRequest, request: Request, response: Response
-):
-    response.delete_cookie(
-        "counterpoint_google_nonce",
-        httponly=True,
-        secure=COOKIE_SECURE,
-        samesite="strict",
-        path="/",
-    )
-    if not consume_auth_attempt(
-        "google:" + hashlib.sha256(request_ip(request).encode()).hexdigest()
-    ):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many Google sign-in attempts. Try again in 15 minutes.",
-        )
-    identity = await verified_google_identity(req, request)
-    email = str(identity.get("email", "")).strip().lower()
-    google_sub = str(identity["sub"])
-    if not EMAIL_RE.fullmatch(email):
-        raise HTTPException(
-            status_code=401, detail="Google did not return a valid email."
-        )
-
-    with connect_db() as db:
-        user = db.execute(
-            "SELECT id, email FROM users WHERE google_sub = ?", (google_sub,)
-        ).fetchone()
-        if not user:
-            user = db.execute(
-                "SELECT id, email, google_sub FROM users WHERE email = ? COLLATE NOCASE",
-                (email,),
-            ).fetchone()
-            if user and user["google_sub"] and user["google_sub"] != google_sub:
-                raise HTTPException(
-                    status_code=409,
-                    detail="This email is connected to a different Google account.",
-                )
-            if user and not user["google_sub"]:
-                google_authoritative = email.endswith("@gmail.com") or bool(
-                    identity.get("hd")
-                )
-                if not google_authoritative:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="An account already uses this email. Sign in with its password first.",
-                    )
-                db.execute(
-                    "UPDATE users SET google_sub = ? WHERE id = ?",
-                    (google_sub, user["id"]),
-                )
-            if not user:
-                salt = secrets.token_bytes(16)
-                random_password = secrets.token_urlsafe(48)
-                digest = password_digest(random_password, salt)
-                cursor = db.execute(
-                    "INSERT INTO users(email, password_salt, password_hash, google_sub, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (email, salt.hex(), digest.hex(), google_sub, int(time.time())),
-                )
-                user = {"id": cursor.lastrowid, "email": email}
-    issue_session(response, user["id"])
-    return {"user": {"id": user["id"], "email": user["email"]}}
 
 
 @app.post("/api/auth/signup")
@@ -513,14 +412,22 @@ async def clear_decisions(request: Request):
 
 
 @app.patch("/api/decisions/{decision_id}/outcome")
-async def record_outcome(decision_id: int, request: Request):
+async def record_outcome(decision_id: int, payload: OutcomeRequest, request: Request):
     user = require_user(request)
-    payload = await request.json()
-    choice = str(payload.get("choice", "")).strip()[:100]
-    notes = str(payload.get("notes", "")).strip()[:2000]
+    choice = payload.choice.strip()[:100]
+    notes = payload.notes.strip()[:2000]
+    usefulness = payload.usefulness.strip().lower()
+    if usefulness and usefulness not in {"yes", "partly", "no"}:
+        raise HTTPException(status_code=422, detail="Choose yes, partly, or no for usefulness.")
     if not choice:
         raise HTTPException(status_code=422, detail="Record the option you chose.")
-    outcome = {"choice": choice, "notes": notes, "updated_at": int(time.time())}
+    outcome = {
+        "choice": choice,
+        "notes": notes,
+        "usefulness": usefulness,
+        "source_trust": payload.source_trust,
+        "updated_at": int(time.time()),
+    }
     with connect_db() as db:
         result = db.execute(
             "UPDATE decisions SET outcome_json = ? WHERE id = ? AND user_id = ?",
@@ -536,6 +443,7 @@ async def reassess_scenario(
     decision_id: int, payload: ScenarioRequest, request: Request
 ):
     user = require_user(request)
+    enforce_user_rate_limit(user["id"], "scenario-reassessment", 20, 60 * 60)
     with connect_db() as db:
         row = db.execute(
             "SELECT * FROM decisions WHERE id = ? AND user_id = ?",
@@ -585,6 +493,7 @@ async def reassess_scenario(
 @app.post("/api/decisions/learning-review")
 async def learning_review(request: Request):
     user = require_user(request)
+    enforce_user_rate_limit(user["id"], "learning-review", 4, 24 * 60 * 60)
     with connect_db() as db:
         rows = db.execute(
             """SELECT topic, criteria_json, verdict, sources_json, outcome_json,
@@ -607,6 +516,8 @@ async def learning_review(request: Request):
             "sources": [source.get("title", "Source") for source in json.loads(row["sources_json"])[:5]],
             "reported_choice": outcome.get("choice", "")[:100],
             "reported_update": outcome.get("notes", "")[:1200],
+            "usefulness_rating": outcome.get("usefulness", ""),
+            "source_trust_rating": outcome.get("source_trust"),
         })
         if len(records) >= 30:
             break
@@ -616,7 +527,7 @@ async def learning_review(request: Request):
         async with httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=15.0)) as client:
             review = await gemini_completion(
                 client,
-                "Review this person's decision history and their own outcome notes. Treat the notes as self-reported, not independently verified. Identify recurring assumptions that held up or failed, decision criteria that repeatedly mattered, and any evidence/source patterns the person explicitly found useful. Do not claim sources were useful if the notes do not say so. Separate observations from hypotheses, avoid judging the person's choices, and give at most three practical adjustments for future decisions. Use four short markdown sections: Patterns; Assumptions to revisit; Evidence habits; Try next time.",
+                "Review this person's decision history and their own outcome notes and usefulness/source-trust ratings. Treat all feedback as self-reported, not independently verified. Identify recurring assumptions that held up or failed, decision criteria that repeatedly mattered, and whether reported usefulness/trust changes with source or decision type. Do not claim a source was useful if the notes do not say so. Separate observations from hypotheses, avoid judging choices, and give at most three practical adjustments for future decisions. Use four short markdown sections: Patterns; Assumptions to revisit; Evidence habits; Try next time.",
                 f"USER-REPORTED DECISION RECORDS:\n{json.dumps(records, ensure_ascii=False)}",
             )
     except (httpx.HTTPError, KeyError, IndexError, TypeError, RuntimeError) as exc:
@@ -750,6 +661,7 @@ async def health():
 @app.post("/api/debate")
 async def debate(req: DebateRequest, request: Request):
     user = require_user(request)
+    enforce_user_rate_limit(user["id"], "decision-analysis", 6, 60 * 60)
     if (
         not os.getenv("GROQ_API_KEY")
         or not os.getenv("GEMINI_API_KEY")

@@ -19,13 +19,9 @@ services:
         value: /var/data/counterpoint.db
       - key: COOKIE_SECURE
         value: "true"
-      - key: BACKEND_PROXY_TOKEN
-        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: TAVILY_API_KEY
-        sync: false
-      - key: GOOGLE_CLIENT_ID
         sync: false

@@ -11,7 +11,7 @@ type DebateResult = {
   weights?: Record<string, number>;
   analysis?: Record<string, unknown>;
   red_team?: string;
-  outcome?: { choice: string; notes?: string; updated_at?: number };
+  outcome?: { choice: string; notes?: string; usefulness?: string; source_trust?: number | null; updated_at?: number };
   image_analysis?: string;
   image_name?: string;
   framing?: string;
@@ -36,30 +36,6 @@ const starterCriteria = [
 let criteria = [...starterCriteria];
 let criteriaWeights: Record<string, number> = Object.fromEntries(starterCriteria.map((item) => [item, 2]));
 let history: DebateResult[] = [];
-type GoogleCredential = { credential: string };
-type GoogleIdentity = {
-  accounts: {
-    id: {
-      initialize: (options: {
-        client_id: string;
-        nonce: string;
-        callback: (response: GoogleCredential) => void;
-      }) => void;
-      renderButton: (
-        element: HTMLElement,
-        options: {
-          theme: "outline";
-          size: "large";
-          text: "continue_with";
-          shape: "rectangular";
-          width: number;
-        },
-      ) => void;
-    };
-  };
-};
-let googleIdentity: GoogleIdentity | undefined;
-
 app.innerHTML = `
   <section class="auth-view" id="auth-view">
     <div class="auth-panel">
@@ -81,11 +57,6 @@ app.innerHTML = `
         <div class="auth-error" id="auth-error" role="alert"></div>
         <button class="start-button auth-submit" type="submit"><span class="button-copy" id="auth-submit-label">Sign in</span><span class="button-arrow">→</span></button>
       </form>
-      <div id="google-auth-area" class="google-auth-area" hidden>
-        <div class="auth-divider"><span>or continue with</span></div>
-        <div id="google-signin-button" class="google-signin-button"></div>
-      </div>
-      <p id="google-setup-note" class="google-setup-note" hidden>Google sign-in needs a web OAuth client ID in the backend settings.</p>
       <p class="auth-security">Your decisions stay in your private workspace. Passwords are securely hashed.</p>
     </div>
   </section>
@@ -122,7 +93,7 @@ app.innerHTML = `
         <div class="selected-criteria"></div>
         <div class="form-error" id="form-error" role="alert"></div>
         <button class="start-button" id="start-debate"><span class="button-copy">Start the debate</span><span class="button-arrow">→</span></button>
-        <div class="privacy-foot">Your keys stay on the backend. Decisions are saved to your account.</div>
+        <div class="privacy-foot">Your topic and criteria go to Tavily search. Decision details and context go to AI providers. Images go to Gemini, not web search; image bytes are not saved by this app, but their filename and analysis are. Saved analyses and outcome notes stay with your account.</div>
       </section>
       <section class="loading-card hidden" id="loading-card" aria-live="polite"><div class="loading-orbit"><span></span><span></span><span></span></div><div class="eyebrow">THE DECISION TEAM IS WORKING</div><h2>Testing the decision from every side.</h2><p id="loading-step">The framer is surfacing assumptions…</p><div class="loading-track"><span></span></div><div class="loading-roles"><span class="role-pill judge-pill">⌖ Framer</span><span class="role-pill judge-pill">⌕ Researcher</span><span class="role-pill for-pill">↗ In favor</span><span class="role-pill against-pill">↙ Against</span><span class="role-pill against-pill">⌁ Red team</span><span class="role-pill judge-pill">✦ The judge</span></div></section>
       <section class="results hidden" id="results"></section>
@@ -406,85 +377,6 @@ async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
-async function configureGoogleSignIn() {
-  const setupNote = $("#google-setup-note");
-  try {
-    const config = await apiRequest<{
-      client_id: string | null;
-      nonce?: string;
-    }>("/api/auth/google/config");
-    if (!config.client_id || !config.nonce) {
-      setupNote.hidden = false;
-      return;
-    }
-    const renderButton = () => {
-      const api = (window as Window & { google?: GoogleIdentity }).google;
-      if (!api) {
-        setupNote.hidden = false;
-        setupNote.textContent =
-          "Google sign-in couldn’t load. Check your connection and refresh.";
-        return;
-      }
-      googleIdentity = api;
-      api.accounts.id.initialize({
-        client_id: config.client_id!,
-        nonce: config.nonce!,
-        callback: (response) => {
-          void apiRequest<{ user: { id: number; email: string } }>(
-            "/api/auth/google",
-            {
-              method: "POST",
-              body: JSON.stringify({ credential: response.credential }),
-            },
-          )
-            .then((data) => enterWorkspace(data.user))
-            .catch((error) => {
-              $("#auth-error").textContent =
-                error instanceof Error
-                  ? error.message
-                  : "Google sign-in couldn’t be completed.";
-            });
-        },
-      });
-      googleIdentity.accounts.id.renderButton($("#google-signin-button"), {
-        theme: "outline",
-        size: "large",
-        text: "continue_with",
-        shape: "rectangular",
-        width: Math.max(
-          200,
-          Math.min(346, $("#google-signin-button").clientWidth),
-        ),
-      });
-      $("#google-auth-area").hidden = false;
-      setupNote.hidden = true;
-    };
-    const existingScript = document.querySelector<HTMLScriptElement>(
-      'script[src="https://accounts.google.com/gsi/client"]',
-    );
-    if ((window as Window & { google?: GoogleIdentity }).google) {
-      renderButton();
-    } else if (existingScript) {
-      existingScript.addEventListener("load", renderButton, { once: true });
-    } else {
-      const script = document.createElement("script");
-      script.src = "https://accounts.google.com/gsi/client";
-      script.async = true;
-      script.defer = true;
-      script.onload = renderButton;
-      script.onerror = () => {
-        setupNote.hidden = false;
-        setupNote.textContent =
-          "Google sign-in couldn’t load. Check your connection and refresh.";
-      };
-      document.head.append(script);
-    }
-  } catch {
-    setupNote.hidden = false;
-    setupNote.textContent = "Google sign-in is unavailable right now.";
-  }
-}
-
 async function loadHistory() {
   const data = await apiRequest<{ decisions: DebateResult[] }>(
     "/api/decisions",
@@ -600,11 +492,13 @@ function displayResult(result: DebateResult, save = true) {
     );
   }
   if (result.id) {
-    const outcomeMarkup = `<section class="outcome-card"><div class="verdict-head"><span class="verdict-icon">↻</span><div><span class="argument-label">CLOSE THE LOOP</span><h3>What did you decide?</h3></div></div><p>Record the choice you made. Later, add what happened and see which assumptions held up.</p><label for="outcome-choice">Your choice</label><input id="outcome-choice" maxlength="100" value="${escapeHtml(result.outcome?.choice ?? "")}" placeholder="e.g. I accepted the offer"><label for="outcome-notes">What happened? <span>Optional</span></label><textarea id="outcome-notes" maxlength="2000" rows="2" placeholder="Add an update now, or come back after the decision plays out.">${escapeHtml(result.outcome?.notes ?? "")}</textarea><div class="outcome-actions"><button class="secondary-button" id="save-outcome">Save outcome</button><span id="outcome-status" role="status">${result.outcome?.updated_at ? "Saved to this decision" : ""}</span></div></section>`;
+    const outcomeMarkup = `<section class="outcome-card"><div class="verdict-head"><span class="verdict-icon">↻</span><div><span class="argument-label">CLOSE THE LOOP</span><h3>What did you decide?</h3></div></div><p>Record your choice and whether the analysis helped. Your feedback improves your personal learning review.</p><label for="outcome-choice">Your choice</label><input id="outcome-choice" maxlength="100" value="${escapeHtml(result.outcome?.choice ?? "")}" placeholder="e.g. I accepted the offer"><label for="outcome-notes">What happened? <span>Optional</span></label><textarea id="outcome-notes" maxlength="2000" rows="2" placeholder="Add an update now, or come back after the decision plays out.">${escapeHtml(result.outcome?.notes ?? "")}</textarea><div class="outcome-ratings"><label for="outcome-usefulness">Did this analysis help?<select id="outcome-usefulness"><option value="">Skip for now</option><option value="yes" ${result.outcome?.usefulness === "yes" ? "selected" : ""}>Yes</option><option value="partly" ${result.outcome?.usefulness === "partly" ? "selected" : ""}>Partly</option><option value="no" ${result.outcome?.usefulness === "no" ? "selected" : ""}>No</option></select></label><label for="outcome-source-trust">Trust in the evidence<select id="outcome-source-trust"><option value="">Skip for now</option>${[1, 2, 3, 4, 5].map((value) => `<option value="${value}" ${result.outcome?.source_trust === value ? "selected" : ""}>${value} / 5</option>`).join("")}</select></label></div><div class="outcome-actions"><button class="secondary-button" id="save-outcome">Save outcome</button><span id="outcome-status" role="status">${result.outcome?.updated_at ? "Saved to this decision" : ""}</span></div></section>`;
     results.querySelector(".verdict-card")?.insertAdjacentHTML("afterend", outcomeMarkup);
     $("#save-outcome").addEventListener("click", async () => {
       const choice = ($("#outcome-choice") as HTMLInputElement).value.trim();
       const notes = ($("#outcome-notes") as HTMLTextAreaElement).value.trim();
+      const usefulness = ($("#outcome-usefulness") as HTMLSelectElement).value;
+      const trustValue = ($("#outcome-source-trust") as HTMLSelectElement).value;
       const status = $("#outcome-status");
       if (!choice) {
         status.textContent = "Enter the choice you made first.";
@@ -616,7 +510,7 @@ function displayResult(result: DebateResult, save = true) {
       try {
         const saved = await apiRequest<{ outcome: NonNullable<DebateResult["outcome"]> }>(
           `/api/decisions/${result.id}/outcome`,
-          { method: "PATCH", body: JSON.stringify({ choice, notes }) },
+          { method: "PATCH", body: JSON.stringify({ choice, notes, usefulness, source_trust: trustValue ? Number(trustValue) : null }) },
         );
         result.outcome = saved.outcome;
         status.textContent = "Saved to this decision";
@@ -892,7 +786,6 @@ void apiRequest<{ user: { id: number; email: string } | null }>("/api/auth/me")
     $("#auth-error").textContent =
       "The server is unavailable. Start the backend and refresh this page.";
   });
-void configureGoogleSignIn();
 $("#new-decision").addEventListener("click", () => {
   showView("form");
   resetForm();
