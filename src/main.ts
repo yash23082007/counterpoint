@@ -7,6 +7,19 @@ type DebateResult = {
   criteria: string[];
   options?: string[];
   mind_changer?: string;
+  context?: string;
+  weights?: Record<string, number>;
+  analysis?: Record<string, unknown>;
+  red_team?: string;
+  outcome?: { choice: string; notes?: string; updated_at?: number };
+  image_analysis?: string;
+  image_name?: string;
+  framing?: string;
+  research_review?: string;
+  confidence?: "Low" | "Medium" | "High" | string;
+  scorecard?: { criterion: string; score: number; reasoning: string; sources?: number[] }[];
+  change_triggers?: string[];
+  scenarios?: { weights: Record<string, number>; assumption?: string; verdict: string; created_at: number }[];
   for: string;
   against: string;
   verdict: string;
@@ -21,6 +34,7 @@ const starterCriteria = [
   "Risk and uncertainty",
 ];
 let criteria = [...starterCriteria];
+let criteriaWeights: Record<string, number> = Object.fromEntries(starterCriteria.map((item) => [item, 2]));
 let history: DebateResult[] = [];
 type GoogleCredential = { credential: string };
 type GoogleIdentity = {
@@ -94,10 +108,13 @@ app.innerHTML = `
         <textarea id="topic" rows="3" maxlength="1200" placeholder="e.g. Should I leave my stable job to join an early-stage startup?"></textarea>
         <div class="input-meta"><span>Be as specific as you like. Your topic is sent to the AI and search providers to generate this analysis.</span><span id="char-count">0 / 1200</span></div>
         <div class="decision-setup">
-          <div class="setup-heading"><span class="setup-index">A</span><div><strong>Name the paths you’re weighing</strong><small>Optional. Concrete choices lead to a sharper comparison.</small></div></div>
-          <div class="option-fields"><input id="option-one" maxlength="100" placeholder="Option one · e.g. Buy in Jaipur"><span>OR</span><input id="option-two" maxlength="100" placeholder="Option two · e.g. Buy in Delhi"></div>
+          <div class="setup-heading"><span class="setup-index">A</span><div><strong>Name the paths you’re weighing</strong><small>Optional. Add 2–5 options, one per line. Include “wait” or “do nothing” if useful.</small></div></div>
+          <div class="option-fields"><textarea id="options-input" rows="3" maxlength="510" placeholder="Buy in Jaipur&#10;Buy in Delhi&#10;Wait and save"></textarea></div>
           <label class="field-label mind-label" for="mind-changer">What would change your mind?</label>
           <input id="mind-changer" maxlength="400" placeholder="e.g. A commute under 30 minutes, or a lower monthly payment">
+          <label class="field-label mind-label" for="decision-context">What should the team know about your situation?</label>
+          <textarea id="decision-context" rows="3" maxlength="12000" placeholder="Constraints, budget, timeline, responsibilities, or anything that changes what a good choice looks like."></textarea>
+          <div class="visual-attach"><label for="decision-image">Add visual evidence <span>Optional · JPG, PNG, or WebP · up to 5 MB</span></label><input id="decision-image" type="file" accept="image/jpeg,image/png,image/webp"><div class="visual-preview-row"><img id="image-preview" alt="Selected decision evidence" hidden><span id="image-status" role="status">A visual analyst will describe relevant details. The image is sent to Gemini and is not saved.</span><button id="remove-image" type="button" hidden>Remove</button></div></div>
           <p class="setup-note">Your answer helps the judge surface the assumptions that matter most.</p>
         </div>
         <div class="card-divider"></div>
@@ -107,14 +124,14 @@ app.innerHTML = `
         <button class="start-button" id="start-debate"><span class="button-copy">Start the debate</span><span class="button-arrow">→</span></button>
         <div class="privacy-foot">Your keys stay on the backend. Decisions are saved to your account.</div>
       </section>
-      <section class="loading-card hidden" id="loading-card" aria-live="polite"><div class="loading-orbit"><span></span><span></span><span></span></div><div class="eyebrow">THE DEBATE IS IN SESSION</div><h2>Looking at both sides.</h2><p id="loading-step">The advocate for is building its case…</p><div class="loading-track"><span></span></div><div class="loading-roles"><span class="role-pill for-pill">↗ In favor</span><span class="role-pill against-pill">↙ Against</span><span class="role-pill judge-pill">✦ The judge</span></div></section>
+      <section class="loading-card hidden" id="loading-card" aria-live="polite"><div class="loading-orbit"><span></span><span></span><span></span></div><div class="eyebrow">THE DECISION TEAM IS WORKING</div><h2>Testing the decision from every side.</h2><p id="loading-step">The framer is surfacing assumptions…</p><div class="loading-track"><span></span></div><div class="loading-roles"><span class="role-pill judge-pill">⌖ Framer</span><span class="role-pill judge-pill">⌕ Researcher</span><span class="role-pill for-pill">↗ In favor</span><span class="role-pill against-pill">↙ Against</span><span class="role-pill against-pill">⌁ Red team</span><span class="role-pill judge-pill">✦ The judge</span></div></section>
       <section class="results hidden" id="results"></section>
       <section class="history-view hidden" id="history-view"></section>
       <footer class="page-footer"><span>COUNTERPOINT</span><span>Groq · Gemini · Tavily</span></footer>
     </main>
   </div>
   <dialog id="criteria-dialog"><form method="dialog" class="dialog-card"><button class="dialog-close" aria-label="Close">×</button><span class="eyebrow">PERSONALIZE YOUR DEBATE</span><h2>Your decision criteria</h2><p>Add what you want the judge to prioritize. One per line.</p><textarea id="criteria-input" rows="6"></textarea><div class="dialog-actions"><button class="cancel-button">Cancel</button><button class="save-button" id="save-criteria" value="save">Save criteria</button></div></form></dialog>
-  <dialog id="help-dialog"><form method="dialog" class="dialog-card help-card"><button class="dialog-close" aria-label="Close">×</button><span class="eyebrow">A CLEARER WAY TO CHOOSE</span><h2>How Counterpoint works</h2><div class="help-step"><b>01</b><p><strong>Frame the decision.</strong><br>Describe the choice you’re weighing and what matters to you.</p></div><div class="help-step"><b>02</b><p><strong>Hear both cases.</strong><br>Separate AI advocates explore the strongest arguments for and against.</p></div><div class="help-step"><b>03</b><p><strong>Get a considered view.</strong><br>A second model weighs the cases against your criteria and gives a recommendation.</p></div><p class="help-note">AI analysis can be wrong and is not live web research. Verify important facts before deciding.</p><button class="save-button">Got it</button></form></dialog>
+  <dialog id="help-dialog"><form method="dialog" class="dialog-card help-card"><button class="dialog-close" aria-label="Close">×</button><span class="eyebrow">A CLEARER WAY TO CHOOSE</span><h2>How Counterpoint works</h2><div class="help-step"><b>01</b><p><strong>Frame the decision.</strong><br>A framing agent identifies assumptions and missing paths. Add context, priorities, and an optional image.</p></div><div class="help-step"><b>02</b><p><strong>Research the evidence.</strong><br>A researcher checks source relevance. Two advocates then make the strongest fair case on each side.</p></div><div class="help-step"><b>03</b><p><strong>Challenge the debate.</strong><br>A red team searches for blind spots before the judge weighs your criteria and gives a confidence-rated view.</p></div><div class="help-step"><b>04</b><p><strong>Stress-test and learn.</strong><br>Use the scorecard and priority sliders to explore alternate scenarios. Record what happened to learn from the decision.</p></div><p class="help-note">Images are sent to Gemini for analysis. AI analysis can be wrong; check source links and verify important facts.</p><button class="save-button">Got it</button></form></dialog>
 `;
 
 const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
@@ -143,9 +160,12 @@ const card = $("#decision-card");
 const results = $("#results");
 const loading = $("#loading-card");
 const topicInput = $("#topic") as HTMLTextAreaElement;
-const optionOneInput = $("#option-one") as HTMLInputElement;
-const optionTwoInput = $("#option-two") as HTMLInputElement;
+const optionsInput = $("#options-input") as HTMLTextAreaElement;
 const mindChangerInput = $("#mind-changer") as HTMLInputElement;
+const decisionContextInput = $("#decision-context") as HTMLTextAreaElement;
+const decisionImageInput = $("#decision-image") as HTMLInputElement;
+const imagePreview = $("#image-preview") as HTMLImageElement;
+const imageStatus = $("#image-status");
 
 function renderCriteria() {
   $(".criteria-list").innerHTML =
@@ -159,10 +179,16 @@ function renderCriteria() {
     criteria
       .map(
         (item, index) =>
-          `<span class="selected-chip"><i class="dot dot-${index % 4}"></i>${escapeHtml(item)}</span>`,
+          `<label class="selected-chip"><i class="dot dot-${index % 4}"></i><span>${escapeHtml(item)}</span><select class="criterion-weight" data-weight-for="${escapeHtml(item)}" aria-label="Priority for ${escapeHtml(item)}"><option value="1" ${criteriaWeights[item] === 1 ? "selected" : ""}>Lower</option><option value="2" ${!criteriaWeights[item] || criteriaWeights[item] === 2 ? "selected" : ""}>Normal</option><option value="3" ${criteriaWeights[item] === 3 ? "selected" : ""}>Highest</option></select></label>`,
       )
       .join("") ||
     '<span class="criteria-hint">No criteria selected. Add some in the sidebar.</span>';
+  document.querySelectorAll<HTMLSelectElement>(".criterion-weight").forEach((select) => {
+    select.addEventListener("change", () => {
+      const name = select.dataset.weightFor;
+      if (name) criteriaWeights[name] = Number(select.value);
+    });
+  });
 }
 
 function escapeHtml(value: string) {
@@ -174,6 +200,51 @@ function escapeHtml(value: string) {
       ]!,
   );
 }
+
+function fileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result ?? "");
+      const comma = value.indexOf(",");
+      if (comma < 0) reject(new Error("The image could not be read."));
+      else resolve(value.slice(comma + 1));
+    };
+    reader.onerror = () => reject(new Error("The image could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
+let imagePreviewUrl = "";
+decisionImageInput.addEventListener("change", () => {
+  const file = decisionImageInput.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    decisionImageInput.value = "";
+    imageStatus.textContent = "Choose an image smaller than 5 MB.";
+    return;
+  }
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    decisionImageInput.value = "";
+    imageStatus.textContent = "Choose a JPG, PNG, or WebP image.";
+    return;
+  }
+  if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+  imagePreviewUrl = URL.createObjectURL(file);
+  imagePreview.src = imagePreviewUrl;
+  imagePreview.hidden = false;
+  $("#remove-image").hidden = false;
+  imageStatus.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB · sent to Gemini for analysis, not saved`;
+});
+$("#remove-image").addEventListener("click", () => {
+  decisionImageInput.value = "";
+  if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+  imagePreviewUrl = "";
+  imagePreview.removeAttribute("src");
+  imagePreview.hidden = true;
+  $("#remove-image").hidden = true;
+  imageStatus.textContent = "A visual analyst will describe relevant details. The image is sent to Gemini and is not saved.";
+});
 
 function formatText(text: string, sourceCount = 0) {
   const lines = text
@@ -447,7 +518,8 @@ function showView(view: "form" | "history") {
 
 function renderHistory() {
   const view = $("#history-view");
-  view.innerHTML = `<div class="history-header"><div><div class="eyebrow">YOUR PAST DECISIONS</div><h2>Decision history</h2><p>Saved to your account.</p></div>${history.length ? '<button class="clear-history" id="clear-history">Clear history</button>' : ""}</div>${history.length ? `<div class="history-list">${history.map((item, index) => `<button class="history-item" data-history="${index}"><span class="history-icon">✳</span><span><strong>${escapeHtml(item.topic)}</strong><small>${escapeHtml(item.verdict.slice(0, 115))}${item.verdict.length > 115 ? "…" : ""}</small></span><span class="history-arrow">→</span></button>`).join("")}</div>` : '<div class="empty-history"><span>◷</span><h3>No decisions yet</h3><p>Your completed debates will appear here.</p><button class="save-button" id="history-new">Start a decision</button></div>'}`;
+  const recordedOutcomes = history.filter((item) => item.outcome?.choice).length;
+  view.innerHTML = `<div class="history-header"><div><div class="eyebrow">YOUR PAST DECISIONS</div><h2>Decision history</h2><p>${history.length} saved decisions · ${recordedOutcomes} outcomes recorded</p></div><div class="history-actions">${recordedOutcomes >= 2 ? '<button class="secondary-button" id="learning-review">Review what you learned</button>' : ""}${history.length ? '<button class="clear-history" id="clear-history">Clear history</button>' : ""}</div></div>${history.length ? `<div class="history-list">${history.map((item, index) => `<button class="history-item" data-history="${index}"><span class="history-icon">✳</span><span><strong>${escapeHtml(item.topic)}</strong><small>${escapeHtml(item.verdict.slice(0, 115))}${item.verdict.length > 115 ? "…" : ""}</small>${item.outcome?.choice ? `<small class="history-outcome">Outcome: ${escapeHtml(item.outcome.choice)}</small>` : ""}</span><span class="history-arrow">→</span></button>`).join("")}</div>` : '<div class="empty-history"><span>◷</span><h3>No decisions yet</h3><p>Your completed debates will appear here.</p><button class="save-button" id="history-new">Start a decision</button></div>'}<div class="learning-review-result" id="learning-review-result"></div>`;
   view
     .querySelector("#history-new")
     ?.addEventListener("click", () => showView("form"));
@@ -468,6 +540,25 @@ function renderHistory() {
       );
     }
   });
+  view.querySelector("#learning-review")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    const result = view.querySelector<HTMLElement>("#learning-review-result")!;
+    button.disabled = true;
+    button.textContent = "Reviewing outcomes…";
+    result.textContent = "Comparing your reported choices, notes, and evidence across decisions. These details are sent to Gemini for this review.";
+    try {
+      const review = await apiRequest<{ review: string; outcomes_reviewed: number }>(
+        "/api/decisions/learning-review",
+        { method: "POST" },
+      );
+      result.innerHTML = `<div class="eyebrow">LEARNING REVIEW · ${review.outcomes_reviewed} REPORTED OUTCOMES</div>${formatText(review.review)}`;
+    } catch (cause) {
+      result.textContent = cause instanceof Error ? cause.message : "Could not create a learning review.";
+    } finally {
+      button.disabled = false;
+      button.textContent = "Review what you learned";
+    }
+  });
   view
     .querySelectorAll<HTMLButtonElement>("[data-history]")
     .forEach((button) =>
@@ -475,6 +566,13 @@ function renderHistory() {
         displayResult(history[Number(button.dataset.history)], false),
       ),
     );
+}
+
+function formatScenarioLabel(scenario: NonNullable<DebateResult["scenarios"]>[number]) {
+  const priorities = Object.entries(scenario.weights)
+    .map(([criterion, weight]) => `${criterion}: ${weight === 3 ? "highest" : weight === 1 ? "lower" : "normal"}`)
+    .join(" · ");
+  return [scenario.assumption, priorities].filter(Boolean).map((value) => escapeHtml(value ?? "")).join(" · ");
 }
 
 function displayResult(result: DebateResult, save = true) {
@@ -494,18 +592,120 @@ function displayResult(result: DebateResult, save = true) {
         })
         .join("")}</div></section>`
     : '<div class="evidence-note"><span>ⓘ</span><p>No search sources were returned. Treat factual claims as unverified.</p></div>';
-  results.innerHTML = `<button class="back-link" id="back-to-form">← New decision</button><div class="result-heading"><div class="eyebrow"><span class="pulse"></span> DEBATE COMPLETE</div><h2>Your decision, examined.</h2><p class="result-topic">${escapeHtml(result.topic)}</p></div><div class="evidence-note"><span>ⓘ</span><p><strong>Evidence-led, still an AI analysis.</strong> The advocates use the linked search results where relevant. Verify important claims and consider how well each source applies to your situation.</p></div><div class="argument-grid"><article class="argument-card argument-for"><div class="argument-head"><span class="argument-symbol">↗</span><div><span class="argument-label">THE CASE FOR</span><h3>Reasons to say yes</h3></div></div><div class="argument-copy">${formatText(result.for, result.sources?.length ?? 0)}</div></article><article class="argument-card argument-against"><div class="argument-head"><span class="argument-symbol">↙</span><div><span class="argument-label">THE CASE AGAINST</span><h3>Reasons to pause</h3></div></div><div class="argument-copy">${formatText(result.against, result.sources?.length ?? 0)}</div></article></div>${sourcesHtml}<article class="verdict-card"><div class="verdict-head"><span class="verdict-icon">✦</span><div><span class="argument-label">THE JUDGE’S VIEW</span><h3>A considered recommendation</h3></div></div><div class="verdict-copy">${formatText(result.verdict, result.sources?.length ?? 0)}</div></article><div class="result-actions"><button class="secondary-button" id="copy-result">Copy summary</button><button class="start-button compact" id="another-decision"><span class="button-copy">Try another decision</span><span class="button-arrow">→</span></button></div>`;
+  results.innerHTML = `<button class="back-link" id="back-to-form">← New decision</button><div class="result-heading"><div class="eyebrow"><span class="pulse"></span> DEBATE COMPLETE</div><h2>Your decision, examined.</h2><p class="result-topic">${escapeHtml(result.topic)}</p></div><div class="evidence-note"><span>ⓘ</span><p><strong>Evidence-led, still an AI analysis.</strong> The advocates use the linked search results where relevant. Verify important claims and consider how well each source applies to your situation.</p></div><div class="argument-grid"><article class="argument-card argument-for"><div class="argument-head"><span class="argument-symbol">↗</span><div><span class="argument-label">THE CASE FOR</span><h3>Reasons to say yes</h3></div></div><div class="argument-copy">${formatText(result.for, result.sources?.length ?? 0)}</div></article><article class="argument-card argument-against"><div class="argument-head"><span class="argument-symbol">↙</span><div><span class="argument-label">THE CASE AGAINST</span><h3>Reasons to pause</h3></div></div><div class="argument-copy">${formatText(result.against, result.sources?.length ?? 0)}</div></article></div>${sourcesHtml}<article class="verdict-card"><div class="verdict-head"><span class="verdict-icon">✦</span><div><span class="argument-label">THE JUDGE’S VIEW</span><h3>A considered recommendation</h3></div></div><div class="verdict-copy">${formatText(result.verdict, result.sources?.length ?? 0)}</div></article><div class="result-actions"><button class="secondary-button" id="copy-result">Copy summary</button><button class="secondary-button" id="download-brief">Download decision brief</button><button class="start-button compact" id="another-decision"><span class="button-copy">Try another decision</span><span class="button-arrow">→</span></button></div>`;
+  if (result.red_team) {
+    results.querySelector(".argument-grid")?.insertAdjacentHTML(
+      "afterend",
+      `<article class="verdict-card red-team-card"><div class="verdict-head"><span class="verdict-icon">⌁</span><div><span class="argument-label">RED-TEAM REVIEW</span><h3>What could undermine this call?</h3></div></div><div class="verdict-copy">${formatText(result.red_team, result.sources?.length ?? 0)}</div></article>`,
+    );
+  }
+  if (result.id) {
+    const outcomeMarkup = `<section class="outcome-card"><div class="verdict-head"><span class="verdict-icon">↻</span><div><span class="argument-label">CLOSE THE LOOP</span><h3>What did you decide?</h3></div></div><p>Record the choice you made. Later, add what happened and see which assumptions held up.</p><label for="outcome-choice">Your choice</label><input id="outcome-choice" maxlength="100" value="${escapeHtml(result.outcome?.choice ?? "")}" placeholder="e.g. I accepted the offer"><label for="outcome-notes">What happened? <span>Optional</span></label><textarea id="outcome-notes" maxlength="2000" rows="2" placeholder="Add an update now, or come back after the decision plays out.">${escapeHtml(result.outcome?.notes ?? "")}</textarea><div class="outcome-actions"><button class="secondary-button" id="save-outcome">Save outcome</button><span id="outcome-status" role="status">${result.outcome?.updated_at ? "Saved to this decision" : ""}</span></div></section>`;
+    results.querySelector(".verdict-card")?.insertAdjacentHTML("afterend", outcomeMarkup);
+    $("#save-outcome").addEventListener("click", async () => {
+      const choice = ($("#outcome-choice") as HTMLInputElement).value.trim();
+      const notes = ($("#outcome-notes") as HTMLTextAreaElement).value.trim();
+      const status = $("#outcome-status");
+      if (!choice) {
+        status.textContent = "Enter the choice you made first.";
+        return;
+      }
+      const button = $("#save-outcome") as HTMLButtonElement;
+      button.disabled = true;
+      status.textContent = "Saving…";
+      try {
+        const saved = await apiRequest<{ outcome: NonNullable<DebateResult["outcome"]> }>(
+          `/api/decisions/${result.id}/outcome`,
+          { method: "PATCH", body: JSON.stringify({ choice, notes }) },
+        );
+        result.outcome = saved.outcome;
+        status.textContent = "Saved to this decision";
+      } catch (cause) {
+        status.textContent = cause instanceof Error ? cause.message : "Could not save this outcome.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
   const decisionNotes = [
-    result.options?.length === 2
-      ? `<div class="option-comparison"><span class="argument-label">THE PATHS YOU’RE WEIGHING</span><div><span>${escapeHtml(result.options[0])}</span><b>OR</b><span>${escapeHtml(result.options[1])}</span></div></div>`
+    (result.options?.length ?? 0) >= 2
+      ? `<div class="option-comparison"><span class="argument-label">THE PATHS YOU’RE WEIGHING</span><div class="option-paths">${result.options!.map((option, index) => `<span>${escapeHtml(option)}</span>${index < result.options!.length - 1 ? "<b>OR</b>" : ""}`).join("")}</div></div>`
       : "",
     result.mind_changer
       ? `<div class="mind-changer-note"><span class="note-mark">↗</span><div><span class="argument-label">YOUR DECISION TEST</span><p>If this changes, revisit the call: <strong>${escapeHtml(result.mind_changer)}</strong></p></div></div>`
+      : "",
+    result.context
+      ? `<div class="mind-changer-note"><span class="note-mark">◎</span><div><span class="argument-label">CONTEXT CONSIDERED</span><p>${escapeHtml(result.context)}</p></div></div>`
+      : "",
+    result.framing
+      ? `<div class="agent-note"><div><span class="argument-label">THE FRAMER · DECISION SHAPE & OPEN QUESTIONS</span><div>${formatText(result.framing, result.sources?.length ?? 0)}</div></div></div>`
+      : "",
+    result.research_review
+      ? `<div class="agent-note"><div><span class="argument-label">THE RESEARCHER · EVIDENCE QUALITY</span><div>${formatText(result.research_review, result.sources?.length ?? 0)}</div></div></div>`
+      : "",
+    result.image_analysis
+      ? `<div class="image-analysis-note"><span class="note-mark">▧</span><div><span class="argument-label">VISUAL EVIDENCE${result.image_name ? ` · ${escapeHtml(result.image_name)}` : ""}</span><div class="verdict-copy">${formatText(result.image_analysis, result.sources?.length ?? 0)}</div><small>The image was analyzed by AI. Verify important details against the original.</small></div></div>`
+      : "",
+    result.criteria.length
+      ? `<div class="mind-changer-note"><span class="note-mark">≋</span><div><span class="argument-label">YOUR PRIORITIES</span><p>${result.criteria.map((item) => `${escapeHtml(item)} · ${result.weights?.[item] === 3 ? "highest" : result.weights?.[item] === 1 ? "lower" : "normal"}`).join(" &nbsp; / &nbsp; ")}</p></div></div>`
       : "",
   ].join("");
   results
     .querySelector(".result-heading")
     ?.insertAdjacentHTML("afterend", decisionNotes);
+  if (result.scorecard?.length || result.change_triggers?.length || result.id) {
+    const scorecardHtml = result.scorecard?.length
+      ? `<section class="scorecard-panel"><div class="verdict-head"><span class="verdict-icon">◒</span><div><span class="argument-label">CRITERION SCORECARD · ROUGH FIT, NOT MEASUREMENT</span><h3>How the recommendation fits your criteria</h3></div><span class="confidence-badge">${escapeHtml(result.confidence ?? "Medium")} confidence</span></div><div class="scorecard-list">${result.scorecard.map((item) => {
+          const score = Math.max(0, Math.min(5, Number(item.score) || 0));
+          return `<article class="scorecard-item"><div class="scorecard-title"><strong>${escapeHtml(item.criterion)}</strong><span>${score} / 5</span></div><div class="score-track" role="progressbar" aria-label="Fit for ${escapeHtml(item.criterion)}" aria-valuemin="0" aria-valuemax="5" aria-valuenow="${score}"><i style="width:${score * 20}%"></i></div><p>${formatText(item.reasoning, result.sources?.length ?? 0)}</p></article>`;
+        }).join("")}</div></section>`
+      : "";
+    const triggersHtml = result.change_triggers?.length
+      ? `<section class="change-triggers"><span class="argument-label">WHAT WOULD CHANGE THIS VIEW</span><ul>${result.change_triggers.map((trigger) => `<li>${escapeHtml(trigger)}</li>`).join("")}</ul></section>`
+      : "";
+    const scenarioHtml = result.id
+      ? `<section class="scenario-panel"><div class="verdict-head"><span class="verdict-icon">⇄</span><div><span class="argument-label">SCENARIO SWITCHES</span><h3>What if the conditions changed?</h3></div></div><p>Change what matters or test a concrete assumption. The judge will reuse this evidence and explain whether the recommendation shifts.</p><div class="scenario-controls">${result.criteria.map((item) => `<label class="scenario-control"><span>${escapeHtml(item)}</span><input type="range" min="1" max="3" step="1" value="${result.weights?.[item] ?? 2}" data-scenario-weight="${escapeHtml(item)}"><span data-scenario-label="${escapeHtml(item)}">${result.weights?.[item] === 3 ? "Highest" : result.weights?.[item] === 1 ? "Lower" : "Normal"}</span></label>`).join("")}</div><label class="scenario-assumption-label" for="scenario-assumption">Test an assumption <span>Optional</span></label><input class="scenario-assumption" id="scenario-assumption" maxlength="1000" placeholder="e.g. Assume the start date slips by three months"><button class="secondary-button" id="run-scenario">Reassess this scenario</button><span id="scenario-status" role="status"></span><div id="scenario-result">${(result.scenarios ?? []).slice(-3).map((scenario) => `<article class="scenario-result"><span class="argument-label">${formatScenarioLabel(scenario) || "Saved scenario"}</span>${formatText(scenario.verdict, result.sources?.length ?? 0)}</article>`).join("")}</div></section>`
+      : "";
+    results.querySelector(".verdict-card")?.insertAdjacentHTML(
+      "afterend",
+      `<div class="decision-panels">${scorecardHtml}${triggersHtml}${scenarioHtml}</div>`,
+    );
+    results.querySelectorAll<HTMLInputElement>("[data-scenario-weight]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const name = input.dataset.scenarioWeight;
+        if (!name) return;
+        const label = results.querySelector<HTMLElement>(`[data-scenario-label="${CSS.escape(name)}"]`);
+        if (label) label.textContent = input.value === "3" ? "Highest" : input.value === "1" ? "Lower" : "Normal";
+      });
+    });
+    results.querySelector("#run-scenario")?.addEventListener("click", async () => {
+      const status = $("#scenario-status");
+      const button = $("#run-scenario") as HTMLButtonElement;
+      const changedWeights = Object.fromEntries(
+        Array.from(results.querySelectorAll<HTMLInputElement>("[data-scenario-weight]"))
+          .map((input) => [input.dataset.scenarioWeight!, Number(input.value)]),
+      );
+      const assumption = ($("#scenario-assumption") as HTMLInputElement).value.trim();
+      button.disabled = true;
+      status.textContent = "The judge is reweighing the same evidence…";
+      try {
+        const response = await apiRequest<{ scenario: NonNullable<DebateResult["scenarios"]>[number] }>(
+          `/api/decisions/${result.id}/scenario`,
+          { method: "POST", body: JSON.stringify({ weights: changedWeights, assumption }) },
+        );
+        result.scenarios = [...(result.scenarios ?? []), response.scenario];
+        status.textContent = "Scenario saved with this decision.";
+        $("#scenario-result").insertAdjacentHTML(
+          "afterbegin",
+          `<article class="scenario-result"><span class="argument-label">${formatScenarioLabel(response.scenario) || "Alternate scenario"}</span>${formatText(response.scenario.verdict, result.sources?.length ?? 0)}</article>`,
+        );
+      } catch (cause) {
+        status.textContent = cause instanceof Error ? cause.message : "Could not reassess this scenario.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
   $("#back-to-form").addEventListener("click", () => {
     results.classList.add("hidden");
     card.classList.remove("hidden");
@@ -513,27 +713,64 @@ function displayResult(result: DebateResult, save = true) {
   $("#another-decision").addEventListener("click", resetForm);
   $("#copy-result").addEventListener("click", async () => {
     const optionText =
-      result.options?.length === 2
-        ? `\n\nOPTIONS\n${result.options.join(" vs. ")}`
+      (result.options?.length ?? 0) >= 2
+        ? `\n\nOPTIONS\n${result.options!.join(" vs. ")}`
         : "";
     const mindText = result.mind_changer
       ? `\n\nWHAT COULD CHANGE MY MIND\n${result.mind_changer}`
       : "";
+    const contextText = result.context
+      ? `\n\nMY CONTEXT\n${result.context}`
+      : "";
+    const priorityText = result.criteria
+      .map((item) => `${item}: ${result.weights?.[item] === 3 ? "highest" : result.weights?.[item] === 1 ? "lower" : "normal"}`)
+      .join("\n");
     const sourceList = (result.sources ?? [])
       .map((source, index) => `[${index + 1}] ${source.title} — ${source.url}`)
       .join("\n");
     await navigator.clipboard.writeText(
-      `Decision: ${result.topic}${optionText}${mindText}\n\nFOR\n${result.for}\n\nAGAINST\n${result.against}\n\nJUDGE\n${result.verdict}${sourceList ? `\n\nSOURCES\n${sourceList}` : ""}`,
+      `Decision: ${result.topic}${optionText}${mindText}${contextText}\n\nPRIORITIES\n${priorityText}${result.image_analysis ? `\n\nVISUAL EVIDENCE${result.image_name ? ` (${result.image_name})` : ""}\n${result.image_analysis}` : ""}\n\nFOR\n${result.for}\n\nAGAINST\n${result.against}\n\nRED TEAM\n${result.red_team ?? ""}\n\nJUDGE\n${result.verdict}${sourceList ? `\n\nSOURCES\n${sourceList}` : ""}`,
     );
     $("#copy-result").textContent = "Copied ✓";
+  });
+  $("#download-brief").addEventListener("click", () => {
+    const sourceText = (result.sources ?? []).map((source, index) => `[${index + 1}] ${source.title} — ${source.url}`).join("\n");
+    const scoreText = (result.scorecard ?? []).map((item) => `### ${item.criterion} — ${item.score}/5\n${item.reasoning}`).join("\n\n");
+    const scenarioText = (result.scenarios ?? []).map((item) => `## Alternate scenario: ${formatScenarioLabel(item)}\n${item.verdict}`).join("\n\n");
+    const brief = [
+      `# Decision brief: ${result.topic}`,
+      result.options?.length ? `## Options\n${result.options.map((option) => `- ${option}`).join("\n")}` : "",
+      `## Recommendation\n${result.verdict}`,
+      `## Criterion scorecard (${result.confidence ?? "Medium"} confidence)\n${scoreText}`,
+      result.change_triggers?.length ? `## What would change this view\n${result.change_triggers.map((trigger) => `- ${trigger}`).join("\n")}` : "",
+      result.framing ? `## Framing agent\n${result.framing}` : "",
+      result.research_review ? `## Researcher\n${result.research_review}` : "",
+      `## Case for\n${result.for}`,
+      `## Case against\n${result.against}`,
+      result.red_team ? `## Red-team review\n${result.red_team}` : "",
+      result.image_analysis ? `## Visual evidence (${result.image_name ?? "attached image"})\n${result.image_analysis}` : "",
+      sourceText ? `## Sources\n${sourceText}` : "",
+      scenarioText,
+      result.outcome ? `## Outcome recorded\nChoice: ${result.outcome.choice}\n${result.outcome.notes ?? ""}` : "",
+    ].filter(Boolean).join("\n\n");
+    const blobUrl = URL.createObjectURL(new Blob([brief], { type: "text/markdown;charset=utf-8" }));
+    const link = document.createElement("a");
+    const slug = result.topic.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "decision";
+    link.href = blobUrl;
+    link.download = `${slug}-decision-brief.md`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
   });
 }
 
 function resetForm() {
   topicInput.value = "";
-  optionOneInput.value = "";
-  optionTwoInput.value = "";
+  optionsInput.value = "";
   mindChangerInput.value = "";
+  decisionContextInput.value = "";
+  $("#remove-image").click();
   $("#char-count").textContent = "0 / 1200";
   results.classList.add("hidden");
   card.classList.remove("hidden");
@@ -571,8 +808,7 @@ document
       const template = decisionTemplates[button.dataset.template ?? ""];
       if (!template) return;
       topicInput.value = template.topic;
-      optionOneInput.value = template.options[0];
-      optionTwoInput.value = template.options[1];
+      optionsInput.value = template.options.join("\n");
       mindChangerInput.value = template.mind;
       $("#char-count").textContent = `${topicInput.value.length} / 1200`;
       document
@@ -686,10 +922,7 @@ $("#how-it-works").addEventListener("click", () => {
 });
 $("#start-debate").addEventListener("click", async () => {
   const topic = topicInput.value.trim();
-  const options = [
-    optionOneInput.value.trim(),
-    optionTwoInput.value.trim(),
-  ].filter(Boolean);
+  const options = optionsInput.value.split("\n").map((option) => option.trim()).filter(Boolean);
   const mind_changer = mindChangerInput.value.trim();
   const error = $("#form-error");
   error.textContent = "";
@@ -705,30 +938,55 @@ $("#start-debate").addEventListener("click", async () => {
   }
   if (options.length === 1) {
     error.textContent =
-      "Add both options so the judge can compare them fairly, or leave both blank.";
-    (optionOneInput.value.trim() ? optionTwoInput : optionOneInput).focus();
+      "Add at least two options so the judge can compare them fairly, or leave the options blank.";
+    optionsInput.focus();
+    return;
+  }
+  if (options.length > 5) {
+    error.textContent = "Compare up to five options at a time.";
+    optionsInput.focus();
+    return;
+  }
+  if (new Set(options.map((option) => option.toLocaleLowerCase())).size !== options.length) {
+    error.textContent = "Each option should be distinct.";
+    optionsInput.focus();
     return;
   }
   card.classList.add("hidden");
   loading.classList.remove("hidden");
   results.classList.add("hidden");
   window.scrollTo({ top: 0, behavior: "smooth" });
+  const attachedImage = decisionImageInput.files?.[0];
   const steps = [
+    ...(attachedImage ? ["The visual analyst and framer are defining the evidence…"] : ["The framer is surfacing assumptions and missing paths…"]),
+    "The researcher is checking sources against the decision…",
     "The advocate for is building its case…",
     "The advocate against is testing the other side…",
-    "The judge is weighing your criteria…",
+    "The red team is looking for blind spots…",
+    "The judge is weighing the cases and your priorities…",
   ];
   const step = $("#loading-step");
   let index = 0;
   const timer = window.setInterval(() => {
-    index = Math.min(index + 1, 2);
+    index = Math.min(index + 1, steps.length - 1);
     step.textContent = steps[index];
   }, 6500);
   try {
+    const imageData = attachedImage ? await fileAsBase64(attachedImage) : null;
     const response = await fetch("/api/debate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, criteria, options, mind_changer }),
+      body: JSON.stringify({
+        topic,
+        criteria,
+        options,
+        mind_changer,
+        context: decisionContextInput.value.trim(),
+        weights: criteriaWeights,
+        image_data: imageData,
+        image_mime: attachedImage?.type ?? null,
+        image_name: attachedImage?.name ?? null,
+      }),
     });
     const data = await response.json();
     if (!response.ok)
@@ -743,6 +1001,19 @@ $("#start-debate").addEventListener("click", async () => {
       criteria,
       options: data.options ?? options,
       mind_changer: data.mind_changer ?? mind_changer,
+      context: data.context ?? decisionContextInput.value.trim(),
+      weights: data.weights ?? criteriaWeights,
+      analysis: data.analysis,
+      red_team: data.red_team,
+      image_analysis: data.image_analysis,
+      image_name: data.image_name,
+      framing: data.framing,
+      research_review: data.research_review,
+      scorecard: data.scorecard,
+      confidence: data.confidence,
+      change_triggers: data.change_triggers,
+      scenarios: data.scenarios ?? [],
+      outcome: data.outcome,
       for: data.for,
       against: data.against,
       verdict: data.verdict,
