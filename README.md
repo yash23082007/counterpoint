@@ -85,9 +85,16 @@ To control model-provider spend, each signed-in account is limited to six full d
 
 Each full analysis makes several model-provider calls plus a web search. The search query uses only the trimmed decision topic and criteria; framer output and personal context are not sent to Tavily. An image adds a Gemini call. The progress trail shows the fixed workflow, not live per-role completion events. Long response times are possible; scenario reruns reuse saved evidence and do not perform a new web search.
 
+## Local checks
+
+- `npm run build` checks TypeScript and creates the production bundle.
+- `python -m py_compile backend/main.py` checks backend syntax.
+- `python -m unittest discover -s backend -p "test_*.py" -v` runs the provider-mocked workflow smoke test.
+
 ## API overview
 
 - `GET /api/health` reports database readiness and whether provider keys are configured; it does not make live calls to provider services.
+- `GET /api/version` reports the deployed API contract and supported option range so the frontend can detect stale deployments.
 - `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, and `GET /api/auth/me` manage email/password sessions.
 - `POST /api/debate` creates and saves a decision analysis.
 - `GET /api/decisions` lists the signed-in user's decisions; `DELETE /api/decisions` clears them.
@@ -95,7 +102,7 @@ Each full analysis makes several model-provider calls plus a web search. The sea
 - `POST /api/decisions/{id}/scenario` reassesses a saved decision under new criterion weights and an optional assumption.
 - `POST /api/decisions/learning-review` reviews up to 30 reported outcomes for that account.
 
-`POST /api/debate` accepts JSON fields `topic`, `criteria`, optional `options` (two to five; without them, broad proceed/do-not-proceed paths are inferred), `mind_changer`, `context`, and `weights`. The response includes an option-by-criterion comparison; missing evaluator rows are returned as unavailable instead of being treated as zero. An optional image can be sent as base64 in `image_data` with `image_mime` and `image_name`; supported MIME types are JPEG, PNG, and WebP, up to 5 MB decoded size.
+`POST /api/debate` accepts JSON fields `topic`, `criteria`, optional `options` (two to five; without them, broad proceed/do-not-proceed paths are inferred), `mind_changer`, `context`, and `weights`. The response includes an option-by-criterion comparison; missing evaluator rows are returned as unavailable instead of being treated as zero. Sources may include a provider-reported publication date, which is displayed as provenance rather than treated as verification. An optional image can be sent as base64 in `image_data` with `image_mime` and `image_name`; supported MIME types are JPEG, PNG, and WebP, up to 5 MB decoded size.
 
 ## Current limitations
 

@@ -670,6 +670,15 @@ kbd {
   color: #a04e42;
   margin: 0 0 10px;
 }
+.deployment-warning {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d6bd8b;
+  border-radius: 6px;
+  color: #765d35;
+  background: #fff8e9;
+  font-size: 11px;
+}
 .page-footer {
   max-width: 742px;
   margin: 42px auto 0;
@@ -2103,6 +2112,8 @@ dialog {
 .workflow-index { display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#eef1e9; color:#65735f; font:9px var(--mono); }
 .workflow-trail li strong { font-size:10px; }
 .workflow-status { grid-column:2; color:#71827a; font:8px var(--mono); text-transform:uppercase; }
+.workflow-trail li.is-active { color: #a04e42; }
+.workflow-trail li.is-active .workflow-status { color: #a04e42; }
 .workflow-trail.is-running li { border-color:#dce6dc; }
 .agent-workflow { margin:15px 0 20px; padding:16px 18px; border:1px solid #e5e8df; border-radius:8px; background:#fbfcf9; }
 .agent-workflow-heading { display:flex; justify-content:space-between; align-items:end; gap:14px; }

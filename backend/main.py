@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import binascii
+from contextlib import contextmanager
 import hashlib
 import hmac
 import ipaddress
@@ -21,6 +22,7 @@ from pydantic import BaseModel, Field
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 app = FastAPI(title="Counterpoint API", version="1.0.0")
+API_CONTRACT_VERSION = "2026-11-02.2"
 DB_PATH = os.getenv(
     "DATABASE_PATH", os.path.join(os.path.dirname(__file__), "counterpoint.db")
 )
@@ -39,11 +41,20 @@ async def root():
     }
 
 
+@contextmanager
 def connect_db():
     connection = sqlite3.connect(DB_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    try:
+        yield connection
+    except BaseException:
+        connection.rollback()
+        raise
+    else:
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def initialize_db():
@@ -622,7 +633,7 @@ async def gemini_completion(
         ) from None
 
 
-async def tavily_search(client: httpx.AsyncClient, query: str) -> list[dict[str, str]]:
+async def tavily_search(client: httpx.AsyncClient, query: str) -> list[dict[str, str | None]]:
     key = os.getenv("TAVILY_API_KEY")
     if not key:
         raise RuntimeError("TAVILY_API_KEY is not configured in backend/.env")
@@ -646,6 +657,7 @@ async def tavily_search(client: httpx.AsyncClient, query: str) -> list[dict[str,
             "title": item.get("title", "Source"),
             "url": item.get("url", ""),
             "content": item.get("content", ""),
+            "published_date": item.get("published_date"),
         }
         for item in data.get("results", [])
         if item.get("url") and item.get("content")
@@ -682,6 +694,17 @@ async def health(response: Response):
         "status": "ok" if ready else "degraded",
         "database": database_ready,
         "providers_configured": providers,
+        "api_contract": API_CONTRACT_VERSION,
+        "options": {"minimum": 2, "maximum": 5},
+    }
+
+
+@app.get("/api/version")
+async def version():
+    return {
+        "service": "counterpoint-api",
+        "api_contract": API_CONTRACT_VERSION,
+        "options": {"minimum": 2, "maximum": 5},
     }
 
 

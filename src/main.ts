@@ -24,7 +24,7 @@ type DebateResult = {
   for: string;
   against: string;
   verdict: string;
-  sources?: { title: string; url: string; content: string }[];
+  sources?: { title: string; url: string; content: string; published_date?: string | null }[];
 };
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -96,6 +96,7 @@ app.innerHTML = `
         <div class="form-error" id="form-error" role="alert"></div>
         <button class="start-button" id="start-debate"><span class="button-copy">Start the debate</span><span class="button-arrow">→</span></button>
         <div class="privacy-foot">Your topic and criteria go to Tavily search. Decision details and context go to AI providers. Images go to Gemini, not web search; image bytes are not saved by this app, but their filename and analysis are. Saved analyses and outcome notes stay with your account.</div>
+        <div class="deployment-warning hidden" id="deployment-warning" role="status"></div>
       </section>
       <section class="loading-card hidden" id="loading-card" aria-live="polite"><div class="loading-orbit"><span></span><span></span><span></span></div><div class="eyebrow">FIXED ROLE-BASED WORKFLOW</div><h2>Testing the decision from every side.</h2><p id="loading-step">Working through each stage; response times vary.</p><div class="loading-track"><span></span></div>${workflowTrailMarkup(false)}</section>
       <section class="results hidden" id="results"></section>
@@ -379,6 +380,19 @@ async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+async function checkDeploymentContract() {
+  try {
+    const contract = await apiRequest<{ options?: { maximum?: number } }>("/api/version");
+    if ((contract.options?.maximum ?? 5) < 5) {
+      $("#deployment-warning").textContent =
+        "This deployment is outdated and currently supports only two options. The latest client supports up to five.";
+      $("#deployment-warning").classList.remove("hidden");
+    }
+  } catch {
+    // Older deployments do not expose /api/version; normal functionality remains available.
+  }
+}
+
 function formatApiError(detail: unknown, fallback: string): string {
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) {
@@ -410,6 +424,7 @@ function enterWorkspace(user: { id: number; email: string }) {
   $("#user-email").textContent = user.email;
   $("#auth-view").classList.add("hidden");
   $(".app-shell").classList.remove("hidden");
+  void checkDeploymentContract();
   void loadHistory().catch((error) => {
     $("#form-error").textContent = error.message;
   });
@@ -495,7 +510,15 @@ function formatScenarioLabel(scenario: NonNullable<DebateResult["scenarios"]>[nu
 
 function workflowTrailMarkup(completed: boolean) {
   const stages = ["Frame", "Research", "Advocate", "Red team", "Judge"];
-  return `<ol class="workflow-trail ${completed ? "is-complete" : "is-running"}" aria-label="Fixed role-based analysis workflow">${stages.map((stage, index) => `<li><span class="workflow-index">0${index + 1}</span><strong>${stage}</strong>${completed ? '<span class="workflow-status">Done</span>' : ""}</li>`).join("")}</ol>`;
+  return `<ol class="workflow-trail ${completed ? "is-complete" : "is-running"}" aria-label="Fixed role-based analysis workflow">${stages.map((stage, index) => `<li data-workflow-stage="${index}"><span class="workflow-index">0${index + 1}</span><strong>${stage}</strong>${completed ? '<span class="workflow-status">Done</span>' : '<span class="workflow-status">Queued</span>'}</li>`).join("")}</ol>`;
+}
+
+function updateWorkflowStage(activeIndex: number) {
+  document.querySelectorAll<HTMLElement>("[data-workflow-stage]").forEach((stage, index) => {
+    stage.classList.toggle("is-active", index === activeIndex);
+    const status = stage.querySelector(".workflow-status");
+    if (status) status.textContent = index < activeIndex ? "Done" : index === activeIndex ? "Working" : "Queued";
+  });
 }
 
 function agentWorkflowMarkup(result: DebateResult) {
@@ -537,7 +560,8 @@ function displayResult(result: DebateResult, save = true) {
     ? `<section class="sources-card"><div class="sources-heading"><span class="argument-label">RESEARCH SOURCES</span><span>${result.sources!.length} results from Tavily</span></div><div class="sources-list">${result
         .sources!.map((source, index) => {
           const safeUrl = /^https?:\/\//i.test(source.url) ? source.url : "#";
-          return `<a class="source-item" id="source-${index + 1}" href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer"><span class="source-number">[${index + 1}]</span><span><strong>${escapeHtml(source.title)}</strong><small class="source-provenance">Retrieved result; not independently verified</small><small>${escapeHtml(source.url)}</small></span><span class="source-arrow">↗</span></a>`;
+          const date = source.published_date ? ` · Published ${escapeHtml(source.published_date)}` : "";
+          return `<a class="source-item" id="source-${index + 1}" href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer"><span class="source-number">[${index + 1}]</span><span><strong>${escapeHtml(source.title)}</strong><small class="source-provenance">Retrieved result; not independently verified${date}</small><small>${escapeHtml(source.url)}</small></span><span class="source-arrow">↗</span></a>`;
         })
         .join("")}</div></section>`
     : '<div class="evidence-note"><span>ⓘ</span><p>No search sources were returned. Treat factual claims as unverified.</p></div>';
@@ -903,6 +927,21 @@ $("#start-debate").addEventListener("click", async () => {
   results.classList.add("hidden");
   window.scrollTo({ top: 0, behavior: "smooth" });
   const attachedImage = decisionImageInput.files?.[0];
+  const workflowSteps = [
+    "The framer is surfacing assumptions and missing paths…",
+    "The researcher is checking sources against the decision…",
+    "The advocates are building both cases…",
+    "The red team is looking for blind spots…",
+    "The judge is weighing the evidence and your priorities…",
+  ];
+  let workflowIndex = 0;
+  const workflowTimer = window.setInterval(() => {
+    workflowIndex = Math.min(workflowIndex + 1, workflowSteps.length - 1);
+    $("#loading-step").textContent = workflowSteps[workflowIndex];
+    updateWorkflowStage(workflowIndex);
+  }, 6500);
+  $("#loading-step").textContent = workflowSteps[0];
+  updateWorkflowStage(0);
   try {
     const imageData = attachedImage ? await fileAsBase64(attachedImage) : null;
     const response = await fetch("/api/debate", {
@@ -959,6 +998,7 @@ $("#start-debate").addEventListener("click", async () => {
         ? cause.message
         : "Something went wrong. Please try again.";
   } finally {
+    window.clearInterval(workflowTimer);
     loading.classList.add("hidden");
   }
 });
