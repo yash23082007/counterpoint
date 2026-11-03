@@ -1,29 +1,121 @@
-# Counterpoint — Decision Lab
+# Counterpoint — Evidence-Led Decision Intelligence
 
-Counterpoint is an evidence-led decision workspace. It helps you compare options, challenge assumptions, and record what happened after you decide.
+> A full-stack AI decision workspace that turns an ambiguous choice into a structured, evidence-backed decision brief.
 
-## What it does
+Counterpoint helps people compare options, challenge assumptions, and learn from outcomes. It combines live web research, opposing arguments, red-team analysis, weighted criteria, scenario testing, and outcome tracking in one workflow.
+
+## Resume-ready project description
+
+**Counterpoint | AI Decision Intelligence Platform**
+*TypeScript, Vite, FastAPI, Python, SQLite, Groq, Google Gemini, Tavily, Vercel, Render*
+
+- Built a full-stack **multi-agent and multimodal AI decision-support platform** that converts ambiguous choices into structured, evidence-backed decision briefs through framing, web research, opposing arguments, red-team analysis, weighted scoring, and recommendation stages.
+- Developed a FastAPI backend with Pydantic validation, asynchronous provider integrations, SQLite persistence, indexed decision history, health checks, API contract versioning, and provider-mocked workflow testing.
+- Implemented secure email/password authentication using scrypt password hashing, hashed expiring session tokens, HTTP-only cookie sessions, account-scoped data access, logout, and authentication rate limiting.
+- Designed a decision scorecard supporting **2–5 options**, user-defined criteria and weights, source-linked reasoning, confidence estimates, scenario reassessment, image evidence through vision-model analysis, outcome tracking, and learning reviews.
+- Deployed the frontend on Vercel and the API on Render with persistent SQLite storage; achieved a **537 ms production frontend build**, **45.3 KB JavaScript bundle**, and **1 passing backend smoke test in 0.384 s** in local validation.
+
+### ATS keywords
+
+Artificial Intelligence (AI), Generative AI, Multi-Agent AI, Multimodal AI, LLM applications, AI agents, agentic workflows, prompt engineering, vision models, decision support systems, full-stack development, TypeScript, JavaScript, Python, FastAPI, REST API, Pydantic, SQLite, asynchronous programming, HTTPX, Vite, HTML, CSS, authentication, session management, password hashing, rate limiting, API integration, web search, data validation, test automation, unit testing, Vercel, Render, cloud deployment.
+
+## Why this project stands out
+
+This is more than a chat interface. Counterpoint demonstrates how to build a reliable AI product around a repeatable workflow:
+
+- **Structured reasoning:** A fixed sequence of specialist roles produces a reviewable analysis instead of an opaque single response.
+- **Evidence awareness:** Search results are linked to claims and presented as provenance, not as automatically verified truth.
+- **Decision-quality UX:** Users can define options, priorities, constraints, and the evidence that would change their mind.
+- **Personalized evaluation:** Each option is scored against user-defined criteria and weights before the final recommendation.
+- **Closed-loop learning:** Users can record outcomes and request a review of patterns across past decisions.
+- **Production-minded engineering:** Authentication, password hashing, session expiry, rate limits, validation, persistent storage, health checks, and deployment configuration are included.
+
+## Product workflow
 
 For each decision, Counterpoint:
 
-1. Frames the question and identifies assumptions.
-2. Researches the topic using current web sources.
-3. Builds the strongest fair case for and against each path.
-4. Runs a red-team review to find blind spots.
-5. Scores options against your chosen criteria.
-6. Produces a recommendation with confidence and change triggers.
+1. **Frames** the question and identifies assumptions and research angles.
+2. **Researches** the topic using current web sources.
+3. **Advocates** for and against each path using the available evidence.
+4. **Red-teams** the analysis to surface blind spots and weak assumptions.
+5. **Evaluates** options against weighted user criteria.
+6. **Judges** the trade-offs and produces a recommendation, confidence estimate, and change triggers.
+7. **Learns** from the eventual outcome when the user reports what happened.
 
-You can compare two to five options, define weighted criteria, add personal context, attach one JPG/PNG/WebP image for visual analysis, test alternative scenarios, and record the eventual outcome. Saved decisions can be reviewed later for patterns.
+Users can compare two to five options, add personal context, define weighted criteria, attach one JPG/PNG/WebP image for visual analysis, test alternate scenarios, and save decision history.
 
-The workflow is a fixed sequence of role-based model calls, not an autonomous agent. Generated scores, recommendations, and summaries are model judgments; search results are retrieved evidence and are not independently verified. Review source links and verify important facts before taking consequential action.
+## Technical architecture
 
-## Stack
+```text
+Browser (TypeScript + Vite)
+        │
+        │  /api requests, cookie-based session
+        ▼
+FastAPI service (Python)
+        ├── Authentication and rate limiting
+        ├── Decision workflow orchestration
+        ├── Provider adapters and response validation
+        └── SQLite persistence
+                │
+                ├── Groq — reasoning roles
+                ├── Google Gemini — visual analysis and learning review
+                └── Tavily — current web research
+```
+
+### Technology choices
 
 - **Frontend:** TypeScript, Vite, and CSS
-- **API:** FastAPI and Uvicorn
-- **Storage:** SQLite with a persistent Render disk in production
-- **AI and search:** Groq, Google Gemini, and Tavily
+- **Backend:** FastAPI, Uvicorn, Pydantic, and HTTPX
+- **Database:** SQLite with WAL mode and indexed user decision history
+- **Authentication:** Scrypt password hashing and hashed, expiring session tokens
 - **Deployment:** Vercel for the frontend and Render for the API
+
+## Engineering highlights
+
+- Role-based AI workflow with parallelizable analysis stages and explicit uncertainty handling.
+- Option-by-criterion scorecard that distinguishes unavailable evaluator output from a real zero score.
+- Provider timeouts, fallback handling, structured response parsing, and source provenance.
+- Secure-by-default session design: cookies, server-side token hashes, expiry, logout, and account-scoped queries.
+- Per-user model usage limits and authentication attempt limits to control cost and abuse.
+- Persistent SQLite deployment with health and contract-version endpoints for frontend/backend compatibility checks.
+- Provider-mocked workflow smoke tests that run without making live AI or search requests.
+
+## Performance and quality metrics
+
+The following figures were measured locally from the current repository. Build and bundle figures are machine-dependent; provider latency varies with network conditions, model selection, and third-party rate limits.
+
+| Metric | Current figure | How it was measured |
+|---|---:|---|
+| Production frontend build | 6.64 s | `npm run build` |
+| JavaScript bundle | 45.3 KB | Vite production output, before compression |
+| CSS bundle | 41.9 KB | Vite production output, before compression |
+| Total generated `dist/` output | 104.3 KB | Five production files, before compression |
+| Backend workflow smoke test | 1 test passed in 2.01 s | Provider-mocked `unittest` test body |
+| Full test command | 6.60 s | `python -m unittest discover ...` |
+| SQLite connection timeout | 10 s | Backend database configuration |
+| Provider request timeout | 90 s | Backend HTTP client configuration |
+
+### Input, capacity, and reliability figures
+
+- **2–5** user-defined options per decision.
+- **5 MB** maximum decoded image size.
+- **30** saved outcomes included in one learning review.
+- **6** full analyses per account per hour.
+- **20** scenario reassessments per account per hour.
+- **4** learning reviews per account per day.
+- Scorecard values use a **0–5** fit scale and include every option/criterion pair when provider output is valid.
+
+### Accuracy and latency status
+
+AI recommendation accuracy is intentionally **not claimed yet**. The project currently treats scores and recommendations as model estimates, not ground truth. A meaningful accuracy metric requires a labeled evaluation set with known decision outcomes and a defined scoring rubric.
+
+End-to-end analysis latency is also **not represented by the local build/test timings**. A production benchmark should report p50, p95, and p99 latency separately for health checks, saved-decision reads, full analyses, and scenario reassessments, with provider/model versions and network region recorded.
+
+Recommended next measurement milestone:
+
+1. Create a versioned set of representative decisions with human-reviewed expected outputs.
+2. Score citation validity, option coverage, criterion coverage, unsupported-claim rate, and recommendation usefulness.
+3. Run at least 30 authenticated analyses against staging and report p50/p95 latency, error rate, timeout rate, and provider cost per analysis.
 
 ## Requirements
 
